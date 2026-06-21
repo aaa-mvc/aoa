@@ -76,6 +76,89 @@ def apply_policy_influence(config, drift_result):
     return new_config
 
 
+# ═══════════════════════════════════════════════════════════════
+# v0.2.1 Stability Kernel
+# ═══════════════════════════════════════════════════════════════
+
+POLICY_STATE_FILE = "trace_history/policy_state.json"
+
+
+def _load_policy_state():
+    """Load policy signal history for oscillation detection."""
+    if not os.path.exists(POLICY_STATE_FILE):
+        return {"signals": [], "equilibrium": False}
+    with open(POLICY_STATE_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _save_policy_state(state):
+    os.makedirs(os.path.dirname(POLICY_STATE_FILE), exist_ok=True)
+    with open(POLICY_STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(state, f, ensure_ascii=False, indent=2)
+
+
+def apply_stability(config, drift_result):
+    """v0.2.1: dampen runaway and detect equilibrium.
+
+    Three guards:
+      1. Oscillation lock — if signal flips within 4 runs, force stable
+      2. Runaway brake — 3+ consecutive same signal → halve influence
+      3. Hard floor — look_back_days never below 2
+    """
+    state = _load_policy_state()
+    signal = drift_result.get("signal", "stable") if drift_result else "insufficient_data"
+
+    if signal == "insufficient_data":
+        return config
+
+    # Append current signal
+    state["signals"].append(signal)
+    # Keep only last 8
+    state["signals"] = state["signals"][-8:]
+
+    new_config = config.copy()
+    signals = state["signals"]
+    n = len(signals)
+    old_days = config.get("look_back_days", 5)
+
+    # Guard 1: Oscillation detection (flip within 4 runs)
+    if n >= 4:
+        recent4 = signals[-4:]
+        flips = sum(1 for i in range(1, len(recent4)) if recent4[i] != recent4[i - 1])
+        if flips >= 2:
+            new_config["look_back_days"] = old_days  # revert to original
+            new_config["_stability_action"] = f"oscillation locked → holding at {old_days}"
+            state["equilibrium"] = False
+            _save_policy_state(state)
+            return new_config
+
+    # Guard 2: Runaway brake (3+ same signal)
+    if n >= 3 and len(set(signals[-3:])) == 1:
+        same_signal = signals[-1]
+        if same_signal in ("converging", "diverging"):
+            new_config["look_back_days"] = old_days  # halt further change
+            new_config["_stability_action"] = (
+                f"runaway brake → {same_signal} x{len([s for s in signals if s == same_signal])}, "
+                f"holding at {old_days}"
+            )
+            state["equilibrium"] = False
+            _save_policy_state(state)
+            return new_config
+
+    # Guard 3: Hard floor
+    if new_config.get("look_back_days", 5) < 2:
+        new_config["look_back_days"] = 2
+        new_config["_stability_action"] = "hard floor → look_back clipped to 2"
+
+    # Equilibrium: 5+ consecutive stable
+    if n >= 5 and all(s == "stable" for s in signals[-5:]):
+        state["equilibrium"] = True
+        new_config["_stability_action"] = "equilibrium → system stable"
+
+    _save_policy_state(state)
+    return new_config
+
+
 def run_desktop(cfg):
     """Run filesystem scan profile."""
     print(f"\n  AOA — Action-Oriented Audit · {cfg['name']}")
@@ -124,11 +207,19 @@ def run_desktop(cfg):
 
     # ── v0.2-final: Policy Influence Layer ──
     new_cfg = apply_policy_influence(cfg, drift_result)
+
+    # ── v0.2.1: Stability Kernel ──
+    new_cfg = apply_stability(new_cfg, drift_result)
+    stability_note = new_cfg.pop("_stability_action", None)
+
     if new_cfg.get("_policy_applied"):
         policy_note = new_cfg.pop("_policy_applied")
         # Persist modified config for next run
         _save_profile_config(cfg.get("_profile", "desktop"), new_cfg)
-        print(f"  Policy: {policy_note}")
+        msg = f"  Policy: {policy_note}"
+        if stability_note:
+            msg += f" | Stability: {stability_note}"
+        print(msg)
 
     # Output
     output_path = cfg.get("output", "report.md")
