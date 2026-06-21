@@ -310,29 +310,29 @@ def run_desktop(cfg):
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(report)
 
-    print(f"  报告已保存：{output_path}")
-
-    # ── v0.4: Feedback window ──
+    # ── v0.4: Feedback ──
     feedback_text = cfg.get("_feedback", "")
     if feedback_text:
         _append_feedback(output_path, feedback_text, cfg.get("name", "AOA"))
-        preview = feedback_text[:40] + ("..." if len(feedback_text) > 40 else "")
-        print("  反馈已附加: " + preview)
-    elif feedback_text == "":
-        # Empty feedback flag → print hint
-        pass
-    else:
-        # No feedback provided → append template
-        _append_feedback_template(output_path)
 
     safe_id = run_id.replace(":", "-")
-    print(f"  Trace 已保存：trace_history/{safe_id}.json")
 
-    # Open report
-    try:
-        os.startfile(output_path)
-    except Exception:
-        pass
+    # Print report directly to terminal — no need to open another file
+    # Sanitize emojis for Windows GBK console
+    console_report = report
+    for emoji, text in [("\U0001f4ca", "[*]"), ("\U0001f3af", "[>>]"),
+                         ("\U0001f464", "[@]"), ("\U0001f4ac", "[msg]")]:
+        console_report = console_report.replace(emoji, text)
+    print("")
+    print("  " + "=" * 56)
+    print(console_report)
+    print("")
+    print(f"  [报告已保存: {output_path}]")
+    print(f"  [Trace: trace_history/{safe_id}.json]")
+
+    # Keep terminal open
+    if cfg.get("_interactive"):
+        input("  按 Enter 退出...")
 
 
 def run_git(cfg):
@@ -553,6 +553,7 @@ def _interactive():
     cfg["_audience"] = audience
     cfg["_feedback"] = feedback if feedback else None
     cfg["_user_info"] = load_user_info(profile_name)
+    cfg["_interactive"] = True
 
     source = cfg.get("source", "filesystem")
     if source == "git":
