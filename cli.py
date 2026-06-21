@@ -413,6 +413,7 @@ def main():
         print("AOA — Action-Oriented Audit v0.5")
         print("")
         print("Usage:")
+        print("  python cli.py interactive          (推荐：双击即用，数字选单）")
         print("  python cli.py run <profile> [--audience self|manager|hr|boss] [--feedback \"text\"]")
         print("  python cli.py aggregate feedback")
         print("")
@@ -421,6 +422,11 @@ def main():
         sys.exit(0)
 
     command = sys.argv[1]
+
+    # ── Interactive mode ──
+    if command == "interactive" or command == "i":
+        _interactive()
+        return
 
     # ── v0.4: Aggregate feedback ──
     if command == "aggregate":
@@ -465,6 +471,90 @@ def main():
     # Dispatch by profile type
     source = cfg.get("source", "filesystem")
 
+    if source == "git":
+        run_git(cfg)
+    else:
+        run_desktop(cfg)
+
+
+def _interactive():
+    """Interactive menu — no commands to remember. Pick from numbered lists."""
+    print("")
+    print("  ========================================")
+    print("    AOA - Action-Oriented Audit")
+    print("  ========================================")
+    print("")
+
+    # Step 1: Pick profile
+    profiles_dir = "profiles"
+    profiles = []
+    if os.path.exists(profiles_dir):
+        for name in sorted(os.listdir(profiles_dir)):
+            config_path = os.path.join(profiles_dir, name, "config.json")
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                profiles.append((name, cfg.get("name", name)))
+
+    if not profiles:
+        print("  (无可用 profile)")
+        return
+
+    print("  选择场景：")
+    for i, (key, label) in enumerate(profiles, 1):
+        print(f"    [{i}] {label}")
+    print("")
+    choice = input("  输入数字 (1-{0}): ".format(len(profiles))).strip()
+    try:
+        idx = int(choice) - 1
+        if idx < 0 or idx >= len(profiles):
+            print("  无效选择，退出。")
+            return
+    except ValueError:
+        print("  无效输入，退出。")
+        return
+    profile_name = profiles[idx][0]
+
+    # Step 2: Pick audience
+    print("")
+    print("  选择视角（谁看这份报告）：")
+    audiences = [
+        ("self",    "我自己"),
+        ("manager", "主管"),
+        ("hr",      "HR"),
+        ("boss",    "老板/管理员"),
+    ]
+    for i, (key, label) in enumerate(audiences, 1):
+        print(f"    [{i}] {label}")
+    print("")
+    aud_choice = input("  输入数字 (1-{0}, 默认1): ".format(len(audiences))).strip()
+    audience = "self"
+    try:
+        if aud_choice:
+            aud_idx = int(aud_choice) - 1
+            if 0 <= aud_idx < len(audiences):
+                audience = audiences[aud_idx][0]
+    except ValueError:
+        pass
+
+    # Step 3: Feedback (optional)
+    print("")
+    feedback = input("  今日反馈（直接回车跳过）: ").strip()
+
+    # Step 4: Run
+    print("")
+    print(f"  场景: {profiles[idx][1]}")
+    print(f"  视角: {audience}")
+    if feedback:
+        print(f"  反馈: {feedback[:50]}{'...' if len(feedback) > 50 else ''}")
+
+    cfg = load_profile_config(profile_name)
+    cfg["_profile"] = profile_name
+    cfg["_audience"] = audience
+    cfg["_feedback"] = feedback if feedback else None
+    cfg["_user_info"] = load_user_info(profile_name)
+
+    source = cfg.get("source", "filesystem")
     if source == "git":
         run_git(cfg)
     else:
