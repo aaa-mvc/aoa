@@ -20,6 +20,7 @@ from aoa.trace import save as save_trace
 from aoa.trace import load_last, load_all
 from aoa.delta import compute_focus_dispersion
 import aoa.memory as memory_mod
+import aoa.causal as causal_mod
 
 
 def load_profile_config(profile_name):
@@ -272,6 +273,15 @@ def run_desktop(cfg):
         "ts": run_id,
     })
     memory_mod.save(mem)
+
+    # ── v0.3.3: Causal memory — why did the system change? ──
+    force_fields = memory_mod.effective_force(mem) if mem and len(mem) >= 3 else None
+    if force_fields:
+        prev_policy = mem[-2].get("policy", "init") if len(mem) >= 2 else "init"
+        causal_event = causal_mod.build_event(prev_policy, force_fields)
+        causal_mem = causal_mod.load()
+        causal_mem = causal_mod.update(causal_mem, causal_event)
+        causal_mod.save(causal_mem)
 
     # Output
     output_path = cfg.get("output", "report.md")
