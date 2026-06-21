@@ -294,6 +294,20 @@ def run_desktop(cfg):
         f.write(report)
 
     print(f"  报告已保存：{output_path}")
+
+    # ── v0.4: Feedback window ──
+    feedback_text = cfg.get("_feedback", "")
+    if feedback_text:
+        _append_feedback(output_path, feedback_text, cfg.get("name", "AOA"))
+        preview = feedback_text[:40] + ("..." if len(feedback_text) > 40 else "")
+        print("  反馈已附加: " + preview)
+    elif feedback_text == "":
+        # Empty feedback flag → print hint
+        pass
+    else:
+        # No feedback provided → append template
+        _append_feedback_template(output_path)
+
     safe_id = run_id.replace(":", "-")
     print(f"  Trace 已保存：trace_history/{safe_id}.json")
 
@@ -378,18 +392,40 @@ def run_git(cfg):
 # ═══════════════════════════════════════════════════════════════
 
 def main():
-    if len(sys.argv) < 3:
-        print("AOA — Action-Oriented Audit v0.2")
+    if len(sys.argv) < 2:
+        print("AOA — Action-Oriented Audit v0.3")
         print("")
         print("Usage:")
-        print("  python cli.py run <profile>")
+        print("  python cli.py run <profile> [--feedback \"text\"]")
+        print("  python cli.py aggregate feedback")
         print("")
         print("Available profiles:")
         _list_profiles()
         sys.exit(0)
 
     command = sys.argv[1]
-    profile_name = sys.argv[2]
+
+    # ── v0.4: Aggregate feedback ──
+    if command == "aggregate":
+        subcmd = sys.argv[2] if len(sys.argv) > 2 else ""
+        if subcmd == "feedback":
+            _aggregate_feedback()
+        else:
+            print("Usage: python cli.py aggregate feedback")
+        return
+
+    profile_name = sys.argv[2] if len(sys.argv) > 2 else ""
+    if not profile_name:
+        print("Usage: python cli.py run <profile>")
+        _list_profiles()
+        sys.exit(1)
+
+    # Parse --feedback flag
+    feedback_text = None
+    if "--feedback" in sys.argv:
+        idx = sys.argv.index("--feedback")
+        if idx + 1 < len(sys.argv):
+            feedback_text = sys.argv[idx + 1]
 
     if command != "run":
         print(f"Unknown command: {command}")
@@ -398,6 +434,7 @@ def main():
 
     cfg = load_profile_config(profile_name)
     cfg["_profile"] = profile_name
+    cfg["_feedback"] = feedback_text
 
     # Dispatch by profile type
     source = cfg.get("source", "filesystem")
@@ -420,6 +457,123 @@ def _list_profiles():
                 print(f"  {name:12s} — {cfg.get('name', '(unnamed)')}")
     else:
         print("  (no profiles found)")
+
+
+# ═══════════════════════════════════════════════════════════════
+# v0.4: Feedback — complaint/assistance window + aggregation
+# ═══════════════════════════════════════════════════════════════
+
+def _append_feedback(report_path, text, profile_name):
+    """Append user feedback to an existing report file."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    section = [
+        "",
+        "## \U0001f4ac 今日反馈",
+        f"- 时间：{ts}",
+        f"- 来源：{profile_name}",
+        f"- 内容：{text}",
+        "",
+    ]
+    with open(report_path, "a", encoding="utf-8") as f:
+        f.write("\n".join(section))
+
+
+def _append_feedback_template(report_path):
+    """Append an empty feedback template to the report."""
+    template = [
+        "",
+        "## \U0001f4ac 今日反馈",
+        "- 最大阻力：___",
+        "- 需要协助：___",
+        "- 想吐槽的：___",
+        "",
+    ]
+    with open(report_path, "a", encoding="utf-8") as f:
+        f.write("\n".join(template))
+
+
+def _aggregate_feedback():
+    """Scan all profile reports and aggregate feedback sections.
+
+    Usage: python cli.py aggregate feedback
+    """
+    print("\n  AOA — 反馈汇总")
+    print(f"  扫描时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print("")
+
+    profiles_dir = "profiles"
+    if not os.path.exists(profiles_dir):
+        print("  (无 profile 目录)")
+        return
+
+    all_feedback = []
+    for name in os.listdir(profiles_dir):
+        report_path = os.path.join(profiles_dir, name, "report.md")
+        if not os.path.exists(report_path):
+            continue
+
+        with open(report_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Extract feedback section
+        marker = "## \U0001f4ac 今日反馈"
+        if marker not in content:
+            continue
+
+        idx = content.index(marker)
+        section = content[idx:].split("\n## ")[0]  # until next section
+        section = section.strip()
+
+        # Extract report date
+        date_line = ""
+        for line in content.split("\n")[:5]:
+            if "生成时间" in line:
+                date_line = line.replace("生成时间：", "").strip()
+                break
+
+        all_feedback.append({
+            "profile": name,
+            "date": date_line,
+            "section": section,
+        })
+
+    if not all_feedback:
+        print("  > 暂无反馈数据。")
+        print("")
+        print("  使用方法：")
+        print('    python cli.py run <profile> --feedback "你的反馈内容"')
+        return
+
+    # Output aggregated
+    total = len(all_feedback)
+    print(f"  共 {total} 条反馈：")
+    print("")
+
+    # Group and sort
+    for i, fb in enumerate(all_feedback, 1):
+        print(f"--- {i}. {fb['profile']} ({fb['date']}) ---")
+        # Skip the marker line, show content
+        lines = fb["section"].split("\n")[1:]  # skip "## 💬 今日反馈"
+        for line in lines:
+            if line.startswith("- "):
+                print(f"  {line}")
+        print("")
+
+    # Simple frequency analysis
+    print("---")
+    print("  [关键词频次]")
+    keywords = {}
+    for fb in all_feedback:
+        text = fb["section"].lower()
+        for kw in ["协助", "阻力", "慢", "卡", "阻塞", "部署", "文档", "工具", "沟通", "流程"]:
+            if kw in text:
+                keywords[kw] = keywords.get(kw, 0) + 1
+
+    if keywords:
+        for kw, count in sorted(keywords.items(), key=lambda x: -x[1]):
+            bar = "█" * count
+            print(f"  {kw:6s} {bar} {count}")
+    print("")
 
 
 if __name__ == "__main__":
