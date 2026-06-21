@@ -41,33 +41,48 @@ def _save_profile_config(profile_name, config):
         json.dump(clean, f, ensure_ascii=False, indent=2)
 
 
-def apply_policy_influence(config, drift_result):
-    """v0.2-final: drift signal → behavioral bias on next run's config.
+def apply_policy_influence(config, drift_result, memory_bias=None):
+    """v0.3: drift signal + memory bias → behavioral influence on next config.
 
-    converge → shrink look_back (deeper focus)
-    diverge  → expand look_back (broader awareness)
-    stable   → no change
+    Memory bias modulates influence strength:
+      converging-biased + converging signal → amplify (system "agrees" with past)
+      converging-biased + diverging signal → dampen (system "resists" change)
     """
     if drift_result is None or drift_result["signal"] == "insufficient_data":
         return config
 
     signal = drift_result["signal"]
-    strength = 0.2
+    base_strength = 0.2
     old_days = config.get("look_back_days", 5)
+
+    # ── v0.3: memory bias modulates effective strength ──
+    bias = memory_bias.get("bias", 0.0) if memory_bias else 0.0
+    if bias > 0.1 and signal == "converging":
+        effective_strength = base_strength * 1.5  # amplify: history agrees
+    elif bias > 0.1 and signal == "diverging":
+        effective_strength = base_strength * 0.5  # dampen: history resists
+    elif bias < -0.1 and signal == "diverging":
+        effective_strength = base_strength * 1.5  # amplify
+    elif bias < -0.1 and signal == "converging":
+        effective_strength = base_strength * 0.5  # dampen
+    else:
+        effective_strength = base_strength
 
     new_config = config.copy()
 
     if signal == "converging":
-        new_config["look_back_days"] = max(1, int(old_days * (1 - strength)))
+        new_config["look_back_days"] = max(1, int(old_days * (1 - effective_strength)))
         new_config["_focus_mode"] = "deep_scan"
         new_config["_policy_applied"] = (
             f"converging → look_back {old_days}→{new_config['look_back_days']}"
+            + (f" (bias {bias:+.2f}, str {effective_strength:.2f})" if abs(bias) > 0.1 else "")
         )
     elif signal == "diverging":
-        new_config["look_back_days"] = min(14, int(old_days * (1 + strength)))
+        new_config["look_back_days"] = min(14, int(old_days * (1 + effective_strength)))
         new_config["_focus_mode"] = "broad_scan"
         new_config["_policy_applied"] = (
             f"diverging → look_back {old_days}→{new_config['look_back_days']}"
+            + (f" (bias {bias:+.2f}, str {effective_strength:.2f})" if abs(bias) > 0.1 else "")
         )
     else:
         new_config["_focus_mode"] = "stable_scan"
@@ -205,8 +220,13 @@ def run_desktop(cfg):
     # Generate report
     report, _, drift_result = make_report(cfg, files, previous_trace, all_history, current_state)
 
-    # ── v0.2-final: Policy Influence Layer ──
-    new_cfg = apply_policy_influence(cfg, drift_result)
+    # ── v0.3: Load memory + compute bias ──
+    import aoa.memory as memory_mod
+    mem = memory_mod.load()
+    memory_bias = memory_mod.compute_bias(mem)
+
+    # ── v0.3: Policy Influence (now memory-aware) ──
+    new_cfg = apply_policy_influence(cfg, drift_result, memory_bias)
 
     # ── v0.2.1: Stability Kernel ──
     new_cfg = apply_stability(new_cfg, drift_result)
@@ -219,7 +239,19 @@ def run_desktop(cfg):
         msg = f"  Policy: {policy_note}"
         if stability_note:
             msg += f" | Stability: {stability_note}"
+        if memory_bias and abs(memory_bias.get("bias", 0.0)) > 0.1:
+            msg += f" | Personality: {memory_bias['trend']} (bias {memory_bias['bias']:+.2f})"
         print(msg)
+
+    # ── v0.3: Update memory with this run's signal ──
+    signal = drift_result.get("signal", "stable") if drift_result else "stable"
+    mem = memory_mod.update(mem, {
+        "look_back": cfg.get("look_back_days", 5),
+        "policy": signal,
+        "drift": drift_result.get("current_dispersion", 0) if drift_result else 0,
+        "ts": run_id,
+    })
+    memory_mod.save(mem)
 
     # Output
     output_path = cfg.get("output", "report.md")
