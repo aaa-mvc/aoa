@@ -5,7 +5,7 @@
     "D:/Brain",
     "D:/LabVLA"
   ],
-  "look_back_days": 1,
+  "look_back_days": 2,
   "value_per_action": 50,
   "action_label": "次修改",
   "schedule": "手动",

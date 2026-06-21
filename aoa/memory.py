@@ -83,13 +83,80 @@ def compute_bias(memory):
 
 
 def friction(bias_value):
-    """v0.3.1: Personality friction — stronger bias resists change more.
+    """v0.3.2: Personality friction with hard floor.
 
-    Returns 0.0-1.0 multiplier:
-      1.0 = no resistance (neutral, flexible)
-      0.3 = strong resistance (personality locked in, hard to change)
+    Stronger bias → more resistance. Never fully locks (floor 0.15).
     """
-    return 1.0 - min(abs(bias_value), 0.7)
+    return max(0.15, 1.0 - abs(bias_value) * 0.7)
+
+
+def identity(memory):
+    """v0.3.2: Self-reference anchor — long-term mean drift direction.
+
+    Not memory, not bias — this is the system's "sense of self."
+    Returns the time-averaged bias across all history.
+    """
+    if len(memory) < 3:
+        return 0.0
+    # Compute bias at each point in history, then average
+    biases = []
+    for i in range(1, len(memory) + 1):
+        biases.append(_raw_bias(memory[:i]))
+    return sum(biases) / len(biases)
+
+
+def attractor(bias_value, idn):
+    """v0.3.2: Self-consistency force — pull toward identity, not neutrality.
+
+    force = -k * (bias - identity)
+    k = 0.35: moderate coupling strength
+
+    If bias drifts away from identity, force pulls it back.
+    If bias matches identity, force = 0 → equilibrium with self.
+    """
+    return -0.35 * (bias_value - idn)
+
+
+def effective_force(memory):
+    """v0.3.2: Unified force = (bias + attractor) * friction.
+
+    This single scalar drives all policy decisions:
+      > +0.4 → converging action
+      < -0.4 → diverging action
+      else   → stabilize
+    """
+    b = _raw_bias(memory)
+    idn = identity(memory)
+    force = attractor(b, idn)
+    fric = friction(b)
+    return {
+        "bias": round(b, 4),
+        "identity": round(idn, 4),
+        "attractor": round(force, 4),
+        "friction": round(fric, 4),
+        "effective": round((b + force) * fric, 4),
+    }
+
+
+def _raw_bias(memory):
+    """Compute raw bias scalar (without dict wrapper)."""
+    if not memory:
+        return 0.0
+    total_weight = 0.0
+    weighted_score = 0.0
+    recent = memory[-15:]
+    for i, m in enumerate(reversed(recent)):
+        weight = math.exp(-0.3 * i)
+        signal = m.get("policy", "stable")
+        if signal == "converging":
+            score = 1.0
+        elif signal == "diverging":
+            score = -1.0
+        else:
+            score = 0.3
+        weighted_score += score * weight
+        total_weight += weight
+    return weighted_score / max(total_weight, 1e-6)
 
 
 def phase(memory):

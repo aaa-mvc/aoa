@@ -42,56 +42,64 @@ def _save_profile_config(profile_name, config):
         json.dump(clean, f, ensure_ascii=False, indent=2)
 
 
-def apply_policy_influence(config, drift_result, memory_bias=None):
-    """v0.3: drift signal + memory bias → behavioral influence on next config.
+def apply_policy_influence(config, drift_result, memory_bias=None, mem=None):
+    """v0.3.2: Unified force = (bias + attractor) * friction drives policy.
 
-    Memory bias modulates influence strength:
-      converging-biased + converging signal → amplify (system "agrees" with past)
-      converging-biased + diverging signal → dampen (system "resists" change)
+    effective > +0.4 → converging action
+    effective < -0.4 → diverging action
+    else           → stabilize
     """
     if drift_result is None or drift_result["signal"] == "insufficient_data":
         return config
 
-    signal = drift_result["signal"]
-    base_strength = 0.2
     old_days = config.get("look_back_days", 5)
-
-    # ── v0.3: memory bias modulates effective strength ──
-    bias = memory_bias.get("bias", 0.0) if memory_bias else 0.0
-    if bias > 0.1 and signal == "converging":
-        bias_mod = 1.5  # amplify: history agrees
-    elif bias > 0.1 and signal == "diverging":
-        bias_mod = 0.5  # dampen: history resists
-    elif bias < -0.1 and signal == "diverging":
-        bias_mod = 1.5
-    elif bias < -0.1 and signal == "converging":
-        bias_mod = 0.5
-    else:
-        bias_mod = 1.0
-
-    # ── v0.3.1: personality friction — stronger bias = more resistance to change ──
-    fric = memory_mod.friction(bias) if memory_bias else 1.0
-    effective_strength = base_strength * bias_mod * fric
-
     new_config = config.copy()
 
-    if signal == "converging":
-        new_config["look_back_days"] = max(1, int(old_days * (1 - effective_strength)))
+    # ── v0.3.2: unified effective force ──
+    force = None
+    if mem and len(mem) >= 3:
+        force = memory_mod.effective_force(mem)
+
+    if force is None:
+        # Fallback: use signal directly (no memory yet)
+        signal = drift_result["signal"]
+        base = 0.2
+        if signal == "converging":
+            new_config["look_back_days"] = max(1, int(old_days * (1 - base)))
+            new_config["_focus_mode"] = "deep_scan"
+            new_config["_policy_applied"] = f"converging → {old_days}→{new_config['look_back_days']}"
+        elif signal == "diverging":
+            new_config["look_back_days"] = min(14, int(old_days * (1 + base)))
+            new_config["_focus_mode"] = "broad_scan"
+            new_config["_policy_applied"] = f"diverging → {old_days}→{new_config['look_back_days']}"
+        else:
+            new_config["_focus_mode"] = "stable_scan"
+            new_config["_policy_applied"] = "stable → no change"
+        return new_config
+
+    effective = force["effective"]
+    base = 0.2
+
+    if effective > 0.4:
+        new_config["look_back_days"] = max(1, int(old_days * (1 - base)))
         new_config["_focus_mode"] = "deep_scan"
         new_config["_policy_applied"] = (
-            f"converging → look_back {old_days}→{new_config['look_back_days']}"
-            + (f" (bias {bias:+.2f}, str {effective_strength:.2f})" if abs(bias) > 0.1 else "")
+            f"effective {effective:+.3f} → look_back {old_days}→{new_config['look_back_days']}"
         )
-    elif signal == "diverging":
-        new_config["look_back_days"] = min(14, int(old_days * (1 + effective_strength)))
+    elif effective < -0.4:
+        new_config["look_back_days"] = min(14, int(old_days * (1 + base)))
         new_config["_focus_mode"] = "broad_scan"
         new_config["_policy_applied"] = (
-            f"diverging → look_back {old_days}→{new_config['look_back_days']}"
-            + (f" (bias {bias:+.2f}, str {effective_strength:.2f})" if abs(bias) > 0.1 else "")
+            f"effective {effective:+.3f} → look_back {old_days}→{new_config['look_back_days']}"
         )
     else:
+        # Stabilize: gradual contraction toward floor
+        new_lb = max(2, old_days - 1)
+        new_config["look_back_days"] = new_lb
         new_config["_focus_mode"] = "stable_scan"
-        new_config["_policy_applied"] = "stable → no change"
+        new_config["_policy_applied"] = (
+            f"stabilizing (eff {effective:+.3f}) → {old_days}→{new_lb}"
+        )
 
     return new_config
 
@@ -229,8 +237,8 @@ def run_desktop(cfg):
     mem = memory_mod.load()
     memory_bias = memory_mod.compute_bias(mem)
 
-    # ── v0.3: Policy Influence (now memory-aware) ──
-    new_cfg = apply_policy_influence(cfg, drift_result, memory_bias)
+    # ── v0.3.2: Policy Influence (unified force: bias + attractor + friction) ──
+    new_cfg = apply_policy_influence(cfg, drift_result, memory_bias, mem)
 
     # ── v0.2.1: Stability Kernel ──
     new_cfg = apply_stability(new_cfg, drift_result)
@@ -244,7 +252,15 @@ def run_desktop(cfg):
         if stability_note:
             msg += f" | Stability: {stability_note}"
         if memory_bias and abs(memory_bias.get("bias", 0.0)) > 0.1:
-            msg += f" | Personality: {memory_bias['trend']} (bias {memory_bias['bias']:+.2f})"
+            force = memory_mod.effective_force(mem) if mem and len(mem) >= 3 else None
+            if force:
+                msg += (
+                    f" | Force: eff={force['effective']:+.3f}"
+                    f" (bias={force['bias']:+.2f} id={force['identity']:+.2f}"
+                    f" attr={force['attractor']:+.3f} fric={force['friction']:.2f})"
+                )
+            else:
+                msg += f" | Personality: {memory_bias['trend']} (bias {memory_bias['bias']:+.2f})"
         print(msg)
 
     # ── v0.3: Update memory with this run's signal ──
