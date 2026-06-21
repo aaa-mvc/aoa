@@ -32,6 +32,50 @@ def load_profile_config(profile_name):
         return json.load(f)
 
 
+def _save_profile_config(profile_name, config):
+    """Save modified config back to the profile's config.json."""
+    config_path = os.path.join("profiles", profile_name, "config.json")
+    # Strip internal fields before saving
+    clean = {k: v for k, v in config.items() if not k.startswith("_")}
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(clean, f, ensure_ascii=False, indent=2)
+
+
+def apply_policy_influence(config, drift_result):
+    """v0.2-final: drift signal → behavioral bias on next run's config.
+
+    converge → shrink look_back (deeper focus)
+    diverge  → expand look_back (broader awareness)
+    stable   → no change
+    """
+    if drift_result is None or drift_result["signal"] == "insufficient_data":
+        return config
+
+    signal = drift_result["signal"]
+    strength = 0.2
+    old_days = config.get("look_back_days", 5)
+
+    new_config = config.copy()
+
+    if signal == "converging":
+        new_config["look_back_days"] = max(1, int(old_days * (1 - strength)))
+        new_config["_focus_mode"] = "deep_scan"
+        new_config["_policy_applied"] = (
+            f"converging → look_back {old_days}→{new_config['look_back_days']}"
+        )
+    elif signal == "diverging":
+        new_config["look_back_days"] = min(14, int(old_days * (1 + strength)))
+        new_config["_focus_mode"] = "broad_scan"
+        new_config["_policy_applied"] = (
+            f"diverging → look_back {old_days}→{new_config['look_back_days']}"
+        )
+    else:
+        new_config["_focus_mode"] = "stable_scan"
+        new_config["_policy_applied"] = "stable → no change"
+
+    return new_config
+
+
 def run_desktop(cfg):
     """Run filesystem scan profile."""
     print(f"\n  AOA — Action-Oriented Audit · {cfg['name']}")
@@ -76,7 +120,15 @@ def run_desktop(cfg):
     all_history = load_all(cfg.get("name", "aoa"))
 
     # Generate report
-    report, _ = make_report(cfg, files, previous_trace, all_history, current_state)
+    report, _, drift_result = make_report(cfg, files, previous_trace, all_history, current_state)
+
+    # ── v0.2-final: Policy Influence Layer ──
+    new_cfg = apply_policy_influence(cfg, drift_result)
+    if new_cfg.get("_policy_applied"):
+        policy_note = new_cfg.pop("_policy_applied")
+        # Persist modified config for next run
+        _save_profile_config(cfg.get("_profile", "desktop"), new_cfg)
+        print(f"  Policy: {policy_note}")
 
     # Output
     output_path = cfg.get("output", "report.md")

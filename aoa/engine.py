@@ -112,7 +112,7 @@ def make_report(cfg, files, previous_trace, history_traces, current_state):
     # ── Empty result ──
     if not files:
         lines.append("> 此期间无活动记录。")
-        return "\n".join(lines), 0
+        return "\n".join(lines), 0, drift_result
 
     # ── Daily rhythm ──
     by_day = Counter()
@@ -173,4 +173,4 @@ def make_report(cfg, files, previous_trace, history_traces, current_state):
         f"{datetime.now().strftime('%Y-%m-%d')}*"
     )
 
-    return "\n".join(lines), total_value
+    return "\n".join(lines), total_value, drift_result
