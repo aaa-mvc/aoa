@@ -18,5 +18,11 @@
   "drift": {
     "min_history": 3,
     "rules": ["focus_dispersion"]
+  },
+  "visibility": {
+    "self":    ["user_info", "delta", "semantic", "drift", "policy", "rhythm", "types", "recent", "value", "feedback"],
+    "manager": ["user_info", "delta", "semantic", "drift", "rhythm", "recent", "value", "feedback"],
+    "hr":      ["user_info", "rhythm", "value", "feedback"],
+    "boss":    ["user_info", "drift", "value"]
   }
 }

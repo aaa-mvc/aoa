@@ -1,0 +1,10 @@
+{
+  "id": "E042",
+  "name": "张三",
+  "role": "后端开发",
+  "department": "基础架构",
+  "level": "P6",
+  "joined": "2024-03",
+  "manager": "李四",
+  "responsibilities": ["API 网关维护", "CI/CD 管道"]
+}

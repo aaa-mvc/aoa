@@ -34,6 +34,15 @@ def load_profile_config(profile_name):
         return json.load(f)
 
 
+def load_user_info(profile_name):
+    """Load user.json from profiles/<profile_name>/"""
+    user_path = os.path.join("profiles", profile_name, "user.json")
+    if not os.path.exists(user_path):
+        return None
+    with open(user_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 def _save_profile_config(profile_name, config):
     """Save modified config back to the profile's config.json."""
     config_path = os.path.join("profiles", profile_name, "config.json")
@@ -190,7 +199,14 @@ def apply_stability(config, drift_result):
 
 def run_desktop(cfg):
     """Run filesystem scan profile."""
+    audience = cfg.get("_audience", "self")
+    user_info = cfg.get("_user_info")
+    visibility = cfg.get("visibility", {})
+    visible = set(visibility.get(audience, visibility.get("self", [])))
+
     print(f"\n  AOA — Action-Oriented Audit · {cfg['name']}")
+    if audience != "self":
+        print(f"  视角：{audience}（可见字段：{', '.join(sorted(visible))}）")
     print(f"  扫描中...")
 
     start_ms = time.time() * 1000
@@ -232,7 +248,8 @@ def run_desktop(cfg):
     all_history = load_all(cfg.get("name", "aoa"))
 
     # Generate report
-    report, _, drift_result = make_report(cfg, files, previous_trace, all_history, current_state)
+    report, _, drift_result = make_report(cfg, files, previous_trace, all_history,
+                                          current_state, user_info, visible)
 
     # ── v0.3: Load memory + compute bias ──
     mem = memory_mod.load()
@@ -393,10 +410,10 @@ def run_git(cfg):
 
 def main():
     if len(sys.argv) < 2:
-        print("AOA — Action-Oriented Audit v0.3")
+        print("AOA — Action-Oriented Audit v0.5")
         print("")
         print("Usage:")
-        print("  python cli.py run <profile> [--feedback \"text\"]")
+        print("  python cli.py run <profile> [--audience self|manager|hr|boss] [--feedback \"text\"]")
         print("  python cli.py aggregate feedback")
         print("")
         print("Available profiles:")
@@ -427,6 +444,13 @@ def main():
         if idx + 1 < len(sys.argv):
             feedback_text = sys.argv[idx + 1]
 
+    # Parse --audience flag
+    audience = "self"
+    if "--audience" in sys.argv:
+        idx = sys.argv.index("--audience")
+        if idx + 1 < len(sys.argv):
+            audience = sys.argv[idx + 1]
+
     if command != "run":
         print(f"Unknown command: {command}")
         print("Usage: python cli.py run <profile>")
@@ -435,6 +459,8 @@ def main():
     cfg = load_profile_config(profile_name)
     cfg["_profile"] = profile_name
     cfg["_feedback"] = feedback_text
+    cfg["_audience"] = audience
+    cfg["_user_info"] = load_user_info(profile_name)
 
     # Dispatch by profile type
     source = cfg.get("source", "filesystem")
