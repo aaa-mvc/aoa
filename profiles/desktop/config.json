@@ -1,0 +1,22 @@
+{
+  "name": "我的工作简报",
+  "source": "filesystem",
+  "scan_dirs": ["D:/Brain", "D:/LabVLA"],
+  "look_back_days": 5,
+  "value_per_action": 50,
+  "action_label": "次修改",
+  "schedule": "手动",
+  "output": "report.md",
+  "value": {
+    "model": "hourly_linear",
+    "params": {
+      "rate_per_hour": 50,
+      "minutes_per_action": 10,
+      "currency": "USD"
+    }
+  },
+  "drift": {
+    "min_history": 3,
+    "rules": ["focus_dispersion"]
+  }
+}

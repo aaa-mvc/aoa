@@ -1,0 +1,22 @@
+{
+  "name": "Code Review",
+  "source": "filesystem",
+  "scan_dirs": ["D:/LabVLA", "D:/Brain/AFA"],
+  "look_back_days": 3,
+  "value_per_action": 100,
+  "action_label": "commits",
+  "schedule": "手动",
+  "output": "report.md",
+  "value": {
+    "model": "hourly_linear",
+    "params": {
+      "rate_per_hour": 100,
+      "minutes_per_action": 15,
+      "currency": "USD"
+    }
+  },
+  "drift": {
+    "min_history": 3,
+    "rules": ["focus_dispersion"]
+  }
+}

@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+
+# Environment
+.env
+.venv/
+
+# AOA runtime
+trace_history/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reports (generated)
+profiles/*/report.md
+profiles/*/git_report.md

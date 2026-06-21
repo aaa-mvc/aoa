@@ -1,0 +1,22 @@
+{
+  "name": "Personal Retro",
+  "source": "filesystem",
+  "scan_dirs": ["D:/Brain"],
+  "look_back_days": 3,
+  "value_per_action": 50,
+  "action_label": "notes",
+  "schedule": "手动",
+  "output": "report.md",
+  "value": {
+    "model": "hourly_linear",
+    "params": {
+      "rate_per_hour": 50,
+      "minutes_per_action": 10,
+      "currency": "USD"
+    }
+  },
+  "drift": {
+    "min_history": 3,
+    "rules": ["focus_dispersion"]
+  }
+}
