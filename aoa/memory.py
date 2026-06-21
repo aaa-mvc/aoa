@@ -80,3 +80,29 @@ def compute_bias(memory):
         "trend": trend,
         "strength": round(abs(bias), 4),
     }
+
+
+def friction(bias_value):
+    """v0.3.1: Personality friction — stronger bias resists change more.
+
+    Returns 0.0-1.0 multiplier:
+      1.0 = no resistance (neutral, flexible)
+      0.3 = strong resistance (personality locked in, hard to change)
+    """
+    return 1.0 - min(abs(bias_value), 0.7)
+
+
+def phase(memory):
+    """v0.3.1: Classify the system's behavioral phase state.
+
+    warmup           — not enough history
+    stable           — bias within neutral band, system balanced
+    converging-biased — system strongly prefers converging
+    diverging-biased  — system strongly prefers diverging
+    """
+    if len(memory) < 5:
+        return "warmup"
+    b = compute_bias(memory)["bias"]
+    if abs(b) < 0.25:
+        return "stable"
+    return "converging-biased" if b > 0 else "diverging-biased"

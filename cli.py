@@ -19,6 +19,7 @@ from aoa.engine import make_report
 from aoa.trace import save as save_trace
 from aoa.trace import load_last, load_all
 from aoa.delta import compute_focus_dispersion
+import aoa.memory as memory_mod
 
 
 def load_profile_config(profile_name):
@@ -58,15 +59,19 @@ def apply_policy_influence(config, drift_result, memory_bias=None):
     # ── v0.3: memory bias modulates effective strength ──
     bias = memory_bias.get("bias", 0.0) if memory_bias else 0.0
     if bias > 0.1 and signal == "converging":
-        effective_strength = base_strength * 1.5  # amplify: history agrees
+        bias_mod = 1.5  # amplify: history agrees
     elif bias > 0.1 and signal == "diverging":
-        effective_strength = base_strength * 0.5  # dampen: history resists
+        bias_mod = 0.5  # dampen: history resists
     elif bias < -0.1 and signal == "diverging":
-        effective_strength = base_strength * 1.5  # amplify
+        bias_mod = 1.5
     elif bias < -0.1 and signal == "converging":
-        effective_strength = base_strength * 0.5  # dampen
+        bias_mod = 0.5
     else:
-        effective_strength = base_strength
+        bias_mod = 1.0
+
+    # ── v0.3.1: personality friction — stronger bias = more resistance to change ──
+    fric = memory_mod.friction(bias) if memory_bias else 1.0
+    effective_strength = base_strength * bias_mod * fric
 
     new_config = config.copy()
 
@@ -221,7 +226,6 @@ def run_desktop(cfg):
     report, _, drift_result = make_report(cfg, files, previous_trace, all_history, current_state)
 
     # ── v0.3: Load memory + compute bias ──
-    import aoa.memory as memory_mod
     mem = memory_mod.load()
     memory_bias = memory_mod.compute_bias(mem)
 
