@@ -16,6 +16,7 @@ def make_report(cfg, files, previous_trace, history_traces, current_state):
     lines.append("")
 
     # ── Delta + Drift section (when previous trace exists) ──
+    drift_result = None
     if previous_trace is not None:
         raw_delta = compute_raw_delta(current_state, previous_trace)
         drift_config = cfg.get("drift", {})
@@ -66,6 +67,46 @@ def make_report(cfg, files, previous_trace, history_traces, current_state):
             f"> ⏳ 历史数据不足（{hist_count} 次运行），"
             f"暂无法判断趋势。连续运行 {min_hist} 次后自动开启。"
         )
+        lines.append("")
+
+    # ── Policy: Next recommendation ──
+    if drift_result and drift_result["signal"] != "insufficient_data":
+        lines.append("## 🎯 下次建议")
+        lines.append("")
+        look_back = cfg.get("look_back_days", 5)
+
+        if drift_result["signal"] == "diverging":
+            top_dirs_list = []
+            if files:
+                top_counts = Counter(
+                    f["path"].split("/")[0] if "/" in f["path"]
+                    else f["path"].split("\\")[0]
+                    for f in files
+                )
+                top_dirs_list = [d for d, _ in top_counts.most_common(5)]
+            lines.append("- 当前趋势：**注意力正在分散**")
+            lines.append("- 建议：聚焦扫描核心目录")
+            if top_dirs_list:
+                lines.append(
+                    f"- 核心目录：`{', '.join(top_dirs_list[:5])}`"
+                )
+            lines.append("- 原因：文件修改跨多个顶层目录，可能被碎片化干扰")
+            lines.append(
+                f"- 操作：可手动缩减 `scan_dirs` 或缩小 `look_back_days`（当前 {look_back} 天）"
+            )
+        elif drift_result["signal"] == "converging":
+            lines.append("- 当前趋势：**注意力正在收敛**")
+            lines.append("- 建议：保持当前扫描策略")
+            lines.append("- 原因：修改集中在更少的目录中，聚焦度良好")
+            lines.append(
+                f"- 操作：无需调整（`look_back_days`={look_back}，`scan_dirs` 不变）"
+            )
+        else:
+            lines.append("- 当前趋势：**行为模式稳定**")
+            lines.append("- 建议：保持当前扫描策略")
+            lines.append("- 原因：聚焦度与历史基线一致")
+            lines.append("- 操作：无需调整")
+
         lines.append("")
 
     # ── Empty result ──
