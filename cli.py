@@ -829,30 +829,39 @@ def _discover_agents():
             if len(unique_subs) > 5:
                 print(f"        ... 等 {len(unique_subs)} 个")
 
-        # Chinese keyword extraction: 2-char bigrams from titles
-        if all_titles:
+        # Mixed CN/EN keyword extraction
+        if all_titles or sub_sessions:
             kw = {}
-            stop = {"的", "了", "是", "在", "和", "与", "及", "或", "一个", "这个", "那个",
-                    "什么", "怎么", "如何", "可以", "没有", "已经", "还是", "因为", "所以",
-                    "但是", "如果", "虽然", "不过", "只是", "就是"}
+            stop_cn = {"的", "了", "是", "在", "和", "与", "及", "或", "一个", "这个",
+                       "什么", "怎么", "如何", "可以", "没有", "已经", "还是"}
+            stop_en = {"the", "a", "an", "and", "or", "of", "in", "to", "for", "is",
+                       "with", "on", "at", "by", "from", "this", "that", "it", "be"}
+
+            def extract_words(text):
+                """Extract: English whole words + Chinese 2-3 char bigrams."""
+                # Split English words
+                import re
+                en_words = re.findall(r'[a-zA-Z]{3,}', text)
+                for w in en_words:
+                    wl = w.lower()
+                    if wl not in stop_en:
+                        kw[wl] = kw.get(wl, 0) + 1
+                # Chinese bigrams (only from CJK chars)
+                cn_chars = re.findall(r'[一-鿿]+', text)
+                for segment in cn_chars:
+                    for size in [2, 3]:
+                        for i in range(len(segment) - size + 1):
+                            w = segment[i:i+size]
+                            if w not in stop_cn:
+                                kw[w] = kw.get(w, 0) + 1
+
             for t in all_titles:
-                # Extract 2-3 char windows
-                clean = t.replace(" ", "").replace("：", "").replace(":", "")
-                for size in [2, 3]:
-                    for i in range(len(clean) - size + 1):
-                        w = clean[i:i+size]
-                        if w not in stop:
-                            kw[w] = kw.get(w, 0) + 1
-            # Also add sub-agent descriptions
+                extract_words(t)
             for s in sub_sessions:
                 desc = s.get("agent_desc", "")
                 if desc:
-                    for size in [2, 3]:
-                        clean = desc.replace(" ", "")
-                        for i in range(len(clean) - size + 1):
-                            w = clean[i:i+size]
-                            if w not in stop:
-                                kw[w] = kw.get(w, 0) + 1
+                    extract_words(desc)
+
             top_kw = sorted(kw.items(), key=lambda x: -x[1])[:12]
             if top_kw:
                 kws = " | ".join(f"{w}({c})" for w, c in top_kw if c >= 2)
