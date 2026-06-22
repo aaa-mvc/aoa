@@ -363,6 +363,11 @@ def run_agent_audit(cfg):
     total_users = sum(s["user_msgs"] for s in sessions)
     total_assistant = sum(s["assistant_msgs"] for s in sessions)
 
+    # Aggregate capabilities
+    from aoa.adapters.agent_trace import aggregate_capabilities, CAPABILITY_LABELS
+    all_caps = aggregate_capabilities(sessions)
+    total_cap_count = sum(all_caps.values())
+
     # ── Agent info ──
     if _show("agent_info") and user_info:
         lines.append("## [Agent] 身份")
@@ -381,10 +386,20 @@ def run_agent_audit(cfg):
         lines.append(f"- 子 Agent：**{len(total_sub)}** 个")
         lines.append(f"- 用户请求：**{total_users}** 条")
         lines.append(f"- Agent 响应：**{total_assistant}** 条")
-        lines.append(f"- 工具调用：**{total_tools}** 次")
-        if total_main:
-            avg_tools = total_tools / max(len(total_main), 1)
-            lines.append(f"- 平均每会话工具调用：**{avg_tools:.1f}** 次")
+        lines.append("")
+
+    # ── Capability distribution ──
+    if _show("exec_summary") and all_caps:
+        lines.append("## [Capability] 能力分布")
+        lines.append("")
+        sorted_caps = sorted(all_caps.items(), key=lambda x: -x[1])
+        max_count = sorted_caps[0][1] if sorted_caps else 1
+        for cap, count in sorted_caps:
+            pct = count / max(total_cap_count, 1) * 100
+            bar_len = int(count / max_count * 20)
+            bar = "|" * max(bar_len, 1)
+            label = CAPABILITY_LABELS.get(cap, cap)
+            lines.append(f"- **{label}** {bar} {count} ({pct:.0f}%)")
         lines.append("")
 
     # ── Detail ──
@@ -444,10 +459,17 @@ def run_agent_audit(cfg):
         lines.append("")
         if not total_main:
             lines.append("- ⚠️ 此周期内无Agent会话记录")
-        elif total_tools == 0:
-            lines.append("- ⚠️ Agent 运行但未执行任何工具操作")
+        elif total_cap_count == 0:
+            lines.append("- ⚠️ Agent 运行但未执行任何能力操作")
         else:
-            lines.append(f"- ✅ 该 Agent 正常运行，{days}天内执行 {len(total_main)} 次会话、{total_tools} 次操作")
+            top_cap = sorted_caps[0] if sorted_caps else ("?", 0)
+            top_label = CAPABILITY_LABELS.get(top_cap[0], top_cap[0])
+            lines.append(f"- ✅ 该 Agent 正常运行，{days}天内执行 {len(total_main)} 次会话")
+            lines.append(f"- 核心能力：**{top_label}**（{top_cap[1]} 次，{top_cap[1]/max(total_cap_count,1)*100:.0f}%）")
+            if len(sorted_caps) >= 2:
+                second = sorted_caps[1]
+                second_label = CAPABILITY_LABELS.get(second[0], second[0])
+                lines.append(f"- 次要能力：**{second_label}**（{second[1]} 次，{second[1]/max(total_cap_count,1)*100:.0f}%）")
             if total_sub:
                 lines.append(f"- ℹ️ 调度了 {len(total_sub)} 个子 Agent")
         lines.append("")

@@ -1,29 +1,72 @@
 """Agent trace adapter — scan Claude Code / agent transcript logs.
 
-Reads JSONL transcript files and extracts:
-  - Session count
-  - User requests (tasks given)
-  - Assistant responses (work done)
-  - Tool calls (actions executed)
-  - Session duration
-  - Sub-agent spawns
+v0.7: Capability Trace — classifies tool calls into capability categories.
 """
 
 import os
 import json
 import time
+from collections import Counter
+
+# ── Capability classification ──
+CAPABILITY_MAP = {
+    # Code generation
+    "write": "code_gen",
+    "write_to_file": "code_gen",
+    "edit": "code_gen",
+    "edit_file": "code_gen",
+    "notebook_edit": "code_gen",
+    # Project analysis
+    "read": "analysis",
+    "read_file": "analysis",
+    "grep": "analysis",
+    "glob": "analysis",
+    "list_files": "analysis",
+    # Search & research
+    "web_search": "research",
+    "web_fetch": "research",
+    "search": "research",
+    # Execution / environment
+    "bash": "execution",
+    "execute": "execution",
+    "powershell": "execution",
+    # Delegation
+    "task": "delegation",
+    "agent": "delegation",
+    "workflow": "delegation",
+    # Documentation
+    "notebook_read": "docs",
+    # Filesystem
+    "delete": "fs_ops",
+    "move": "fs_ops",
+    "copy": "fs_ops",
+}
+
+CAPABILITY_LABELS = {
+    "code_gen": "代码生成",
+    "analysis": "项目分析",
+    "research": "搜索研究",
+    "execution": "命令执行",
+    "delegation": "任务委派",
+    "docs": "文档处理",
+    "fs_ops": "文件操作",
+    "other": "其他",
+}
+
+
+def classify_tool(tool_name, tool_input=None):
+    """Classify a tool call into a capability category."""
+    # Direct match
+    if tool_name in CAPABILITY_MAP:
+        return CAPABILITY_MAP[tool_name]
+    # Partial match
+    for key, cap in CAPABILITY_MAP.items():
+        if key in tool_name:
+            return cap
+    return "other"
 
 
 def scan_agent_logs(log_dir, days=7):
-    """Scan agent transcript directory for recent sessions.
-
-    Args:
-        log_dir: path to directory containing .jsonl transcript files
-        days: look-back window
-
-    Returns list of session dicts:
-        {id, timestamp, user_msgs, assistant_msgs, tool_calls, subagents, duration_sec}
-    """
     cutoff = time.time() - days * 86400
     sessions = []
 
@@ -51,7 +94,6 @@ def scan_agent_logs(log_dir, days=7):
 
 
 def _parse_session(fpath, fname):
-    """Parse one JSONL transcript into a session summary."""
     stats = {
         "user_msgs": 0,
         "assistant_msgs": 0,
@@ -61,10 +103,9 @@ def _parse_session(fpath, fname):
         "first_ts": None,
         "last_ts": None,
         "titles": [],
-        "subagent_names": [],
+        "capabilities": Counter(),
     }
 
-    # Check if this is a sub-agent session
     is_subagent = "/subagents/" in fpath.replace("\\", "/")
 
     try:
@@ -95,8 +136,11 @@ def _parse_session(fpath, fname):
                             if isinstance(block, dict):
                                 if block.get("type") == "tool_use":
                                     stats["tool_calls"] += 1
-                                    # Detect sub-agent spawns
                                     tool_name = block.get("name", "")
+                                    tool_input = block.get("input", {})
+                                    cap = classify_tool(tool_name, tool_input)
+                                    stats["capabilities"][cap] += 1
+                                    # Detect sub-agent spawns
                                     if "agent" in tool_name.lower() or "task" in tool_name.lower():
                                         stats["subagents"] += 1
 
@@ -109,7 +153,6 @@ def _parse_session(fpath, fname):
     except (IOError, OSError):
         return None
 
-    # Compute duration
     duration_sec = 0
     if stats["first_ts"] and stats["last_ts"]:
         try:
@@ -121,7 +164,6 @@ def _parse_session(fpath, fname):
 
     session_id = fname.replace(".jsonl", "")
 
-    # Sub-agent: try to read .meta.json for friendly name
     if is_subagent:
         meta_path = fpath.replace(".jsonl", ".meta.json")
         if os.path.exists(meta_path):
@@ -133,7 +175,6 @@ def _parse_session(fpath, fname):
             except (json.JSONDecodeError, IOError):
                 pass
 
-    # Best title
     best_title = stats["titles"][-1] if stats["titles"] else ""
 
     return {
@@ -148,6 +189,7 @@ def _parse_session(fpath, fname):
         "user_msgs": stats["user_msgs"],
         "assistant_msgs": stats["assistant_msgs"],
         "tool_calls": stats["tool_calls"],
+        "capabilities": dict(stats["capabilities"]),
         "subagent_count": stats["subagents"],
         "duration_sec": round(duration_sec, 1),
         "errors": stats["errors"],
@@ -155,10 +197,17 @@ def _parse_session(fpath, fname):
 
 
 def _parse_iso(ts):
-    """Parse ISO timestamp like '2026-06-16T08:14:36.502Z' to epoch seconds."""
-    # Strip Z and parse
     ts = ts.replace("Z", "").replace("T", " ")
     parts = ts.split(".")
     dt_part = parts[0]
     struct = time.strptime(dt_part, "%Y-%m-%d %H:%M:%S")
     return time.mktime(struct)
+
+
+def aggregate_capabilities(sessions):
+    """Aggregate capability distribution across all sessions."""
+    total = Counter()
+    for s in sessions:
+        for cap, count in s.get("capabilities", {}).items():
+            total[cap] += count
+    return dict(total)
