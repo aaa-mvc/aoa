@@ -455,6 +455,22 @@ def run_agent_audit(cfg):
     ledger = build_ledger_from_sessions(sessions)
     total_weighted = ledger.score()
 
+    # ── Project Graph ──
+    if _show("exec_summary") and all_projects:
+        lines.append("## [Portfolio] 项目投资组合")
+        lines.append("")
+        lines.append(f"| 项目 | 操作数 | 资产数 | 资产分 |")
+        lines.append(f"|------|--------|--------|--------|")
+        proj_assets = ledger.by_project()
+        max_score = max(v["score"] for v in proj_assets.values()) if proj_assets else 1
+        for proj, count in list(all_projects.items())[:10]:
+            short = proj.replace("Brain/", "").replace("Hi/", "")
+            pa = proj_assets.get(short, proj_assets.get(proj, {"count": 0, "score": 0.0}))
+            art_count = pa["count"]
+            art_score = pa["score"]
+            lines.append(f"| **{short}** | {count} | {art_count} | {art_score:.0f} |")
+        lines.append("")
+
     if _show("cost_value") and ledger.total_count() > 0:
         lines.append("## [Assets] 资产清单")
         lines.append("")
