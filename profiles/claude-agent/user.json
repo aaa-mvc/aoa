@@ -1,0 +1,9 @@
+{
+  "id": "claude-code-01",
+  "name": "Claude Code",
+  "type": "ai-coding-assistant",
+  "provider": "Anthropic",
+  "host": "本地桌面",
+  "manager": "Hi",
+  "responsibilities": ["代码生成", "文件编辑", "命令执行", "多Agent调度"]
+}

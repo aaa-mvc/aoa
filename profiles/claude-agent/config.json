@@ -1,0 +1,24 @@
+{
+  "name": "Claude Code Agent 审计",
+  "source": "agent_log",
+  "log_dir": "C:/Users/Hi/.claude/projects",
+  "look_back_days": 7,
+  "output": "report.md",
+  "value": {
+    "model": "agent_roi",
+    "params": {
+      "cost_per_session": 3.0,
+      "human_hours_per_session": 2.0,
+      "human_rate_per_hour": 50
+    }
+  },
+  "drift": {
+    "min_history": 3,
+    "rules": ["focus_dispersion"]
+  },
+  "visibility": {
+    "self":    ["agent_info", "exec_summary", "detail", "cost_value", "trends", "verdict"],
+    "manager": ["agent_info", "exec_summary", "cost_value", "verdict"],
+    "boss":    ["agent_info", "cost_value", "verdict"]
+  }
+}

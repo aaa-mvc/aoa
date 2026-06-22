@@ -15,6 +15,7 @@ from datetime import datetime
 
 from aoa.adapters.filesystem import scan_files
 from aoa.adapters.git import scan_git
+from aoa.adapters.agent_trace import scan_agent_logs
 from aoa.engine import make_report
 from aoa.trace import save as save_trace
 from aoa.trace import load_last, load_all
@@ -318,11 +319,8 @@ def run_desktop(cfg):
     safe_id = run_id.replace(":", "-")
 
     # Print report directly to terminal — no need to open another file
-    # Sanitize emojis for Windows GBK console
-    console_report = report
-    for emoji, text in [("\U0001f4ca", "[*]"), ("\U0001f3af", "[>>]"),
-                         ("\U0001f464", "[@]"), ("\U0001f4ac", "[msg]")]:
-        console_report = console_report.replace(emoji, text)
+    # GBK-safe: strip characters that Windows console can't encode
+    console_report = report.encode("gbk", errors="ignore").decode("gbk")
     print("")
     print("  " + "=" * 56)
     print(console_report)
@@ -331,6 +329,152 @@ def run_desktop(cfg):
     print(f"  [Trace: trace_history/{safe_id}.json]")
 
     # Keep terminal open
+    if cfg.get("_interactive"):
+        input("  按 Enter 退出...")
+
+
+def run_agent_audit(cfg):
+    """Run agent log audit profile."""
+    audience = cfg.get("_audience", "self")
+    user_info = cfg.get("_user_info")
+    visibility = cfg.get("visibility", {})
+    visible = set(visibility.get(audience, visibility.get("self", [])))
+    def _show(key):
+        return key in visible
+
+    print(f"\n  AOA — Agent Audit · {cfg['name']}")
+    print(f"  扫描 Agent 日志...")
+
+    log_dir = cfg.get("log_dir", ".")
+    days = cfg.get("look_back_days", 7)
+    sessions = scan_agent_logs(log_dir, days)
+
+    # ── Build report ──
+    lines = []
+    lines.append(f"# {cfg['name']}")
+    lines.append(f"生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    lines.append(f"监控周期：{days} 天")
+    lines.append(f"数据源：{log_dir}")
+    lines.append("")
+
+    total_main = [s for s in sessions if not s["is_subagent"]]
+    total_sub = [s for s in sessions if s["is_subagent"]]
+    total_tools = sum(s["tool_calls"] for s in sessions)
+    total_users = sum(s["user_msgs"] for s in sessions)
+    total_assistant = sum(s["assistant_msgs"] for s in sessions)
+
+    # ── Agent info ──
+    if _show("agent_info") and user_info:
+        lines.append("## [Agent] 身份")
+        lines.append("")
+        for key, label in [("id", "ID"), ("name", "名称"), ("type", "类型"),
+                           ("provider", "提供商"), ("host", "运行位置")]:
+            val = user_info.get(key, "-")
+            lines.append(f"- {label}：{val}")
+        lines.append("")
+
+    # ── Exec summary ──
+    if _show("exec_summary"):
+        lines.append("## [Summary] 执行摘要")
+        lines.append("")
+        lines.append(f"- 主会话：**{len(total_main)}** 次")
+        lines.append(f"- 子 Agent：**{len(total_sub)}** 个")
+        lines.append(f"- 用户请求：**{total_users}** 条")
+        lines.append(f"- Agent 响应：**{total_assistant}** 条")
+        lines.append(f"- 工具调用：**{total_tools}** 次")
+        if total_main:
+            avg_tools = total_tools / max(len(total_main), 1)
+            lines.append(f"- 平均每会话工具调用：**{avg_tools:.1f}** 次")
+        lines.append("")
+
+    # ── Detail ──
+    if _show("detail") and sessions:
+        lines.append("## [Detail] 最近会话")
+        lines.append("")
+        for s in sessions[:10]:
+            tag = "[Sub]" if s["is_subagent"] else "[Main]"
+            dur_min = s["duration_sec"] / 60
+            lines.append(
+                f"- `{s['timestamp'][:10]}` {tag} {s['id']} | "
+                f"用户{s['user_msgs']}条 工具{s['tool_calls']}次 "
+                f"{dur_min:.0f}分钟"
+            )
+        lines.append("")
+
+    # ── Trends ──
+    if _show("trends") and len(total_main) >= 3:
+        lines.append("## [Trend] 行为趋势")
+        lines.append("")
+        # Daily session count
+        by_day = {}
+        for s in sessions:
+            day = s["timestamp"][:10] if s["timestamp"] else "?"
+            by_day[day] = by_day.get(day, 0) + 1
+        for day in sorted(by_day.keys())[-7:]:
+            n = by_day[day]
+            bar = "|" * min(n, 30)
+            lines.append(f"- **{day[5:]}** {bar} {n} 会话")
+        lines.append("")
+
+    # ── Cost/value ──
+    if _show("cost_value"):
+        value_model = cfg.get("value", {})
+        params = value_model.get("params", {})
+        cost_per = params.get("cost_per_session", 3.0)
+        human_hours = params.get("human_hours_per_session", 2.0)
+        human_rate = params.get("human_rate_per_hour", 50)
+
+        total_cost = len(total_main) * cost_per
+        human_equiv = len(total_main) * human_hours * human_rate
+
+        lines.append("## [Value] 成本-价值估算")
+        lines.append("")
+        lines.append(f"- 模型：`{value_model.get('model', 'agent_roi')}`")
+        lines.append(f"- 估算 API 成本：**${total_cost:.2f}**")
+        lines.append(f"- 等效人工价值：**${human_equiv:,.0f}**")
+        if total_cost > 0:
+            lines.append(f"- 投入产出比：**1:{human_equiv/total_cost:.0f}**")
+        lines.append("")
+
+    # ── Verdict ──
+    if _show("verdict"):
+        lines.append("## [Verdict] 审计结论")
+        lines.append("")
+        if not total_main:
+            lines.append("- ⚠️ 此周期内无Agent会话记录")
+        elif total_tools == 0:
+            lines.append("- ⚠️ Agent 运行但未执行任何工具操作")
+        else:
+            lines.append(f"- ✅ 该 Agent 正常运行，{days}天内执行 {len(total_main)} 次会话、{total_tools} 次操作")
+            if total_sub:
+                lines.append(f"- ℹ️ 调度了 {len(total_sub)} 个子 Agent")
+        lines.append("")
+
+    lines.append("---")
+    lines.append(
+        f"*由 AOA (Action-Oriented Audit) Agent 审计模块生成 · "
+        f"{datetime.now().strftime('%Y-%m-%d')}*"
+    )
+
+    report = "\n".join(lines)
+    output_path = cfg.get("output", "report.md")
+    if not os.path.isabs(output_path):
+        output_path = os.path.join("profiles", cfg.get("_profile", "agent"), output_path)
+
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(report)
+
+    print(f"  报告已保存：{output_path}")
+
+    # Print to terminal (GBK-safe)
+    console_report = report.encode("gbk", errors="ignore").decode("gbk")
+    print("")
+    print("  " + "=" * 56)
+    print(console_report)
+    print("")
+    print(f"  [报告已保存: {output_path}]")
+
     if cfg.get("_interactive"):
         input("  按 Enter 退出...")
 
@@ -473,6 +617,8 @@ def main():
 
     if source == "git":
         run_git(cfg)
+    elif source == "agent_log":
+        run_agent_audit(cfg)
     else:
         run_desktop(cfg)
 
@@ -558,6 +704,8 @@ def _interactive():
     source = cfg.get("source", "filesystem")
     if source == "git":
         run_git(cfg)
+    elif source == "agent_log":
+        run_agent_audit(cfg)
     else:
         run_desktop(cfg)
 
