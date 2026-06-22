@@ -449,17 +449,18 @@ def run_agent_audit(cfg):
             lines.append(f"- **{day[5:]}** {bar} {n} 会话")
         lines.append("")
 
-    # ── Asset Registry ──
-    from aoa.artifact_extractor import format_asset_summary
+    # ── Artifact Ledger ──
+    from aoa.ledger import build_ledger_from_sessions
 
-    if _show("cost_value"):
-        asset_lines, total_weighted = format_asset_summary(sessions)
-        if asset_lines:
-            lines.append("## [Assets] 资产清单")
-            lines.append("")
-            for al in asset_lines:
-                lines.append(al)
-            lines.append("")
+    ledger = build_ledger_from_sessions(sessions)
+    total_weighted = ledger.score()
+
+    if _show("cost_value") and ledger.total_count() > 0:
+        lines.append("## [Assets] 资产清单")
+        lines.append("")
+        for al in ledger.summary():
+            lines.append(al)
+        lines.append("")
 
     # ── Cost/value ──
     if _show("cost_value"):
