@@ -901,8 +901,22 @@ def _discover_agents():
             print("")
 
     print("  审计命令：")
-    for name, _ in unique:
-        print(f"    python cli.py run {name.lower().replace(' ', '-')}")
+    # Find matching profile names
+    for _, log_dir in unique:
+        matched = None
+        if os.path.exists(profiles_dir):
+            for pname in os.listdir(profiles_dir):
+                cpath = os.path.join(profiles_dir, pname, "config.json")
+                if os.path.exists(cpath):
+                    with open(cpath, "r", encoding="utf-8") as f:
+                        pcfg = json.load(f)
+                    if pcfg.get("log_dir") == log_dir:
+                        matched = pname
+                        break
+        if matched:
+            print(f"    python cli.py run {matched}")
+        else:
+            print(f"    (未找到对应 profile，日志目录: {log_dir})")
     print("")
 
 
