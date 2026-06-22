@@ -880,13 +880,29 @@ def _discover_agents():
         total_cost += est_cost
 
     print("  ---")
-    print(f"  总计：{total_sessions} 会话 | {total_tools} 工具调用 | 估算总成本 ${total_cost:.0f}")
+    print(f"  Agent 总计：{total_sessions} 会话 | {total_tools} 工具调用 | 估算总成本 ${total_cost:.0f}")
     print("")
-    print("  审计单个 Agent：")
+
+    # ── Also show AOA's own human profiles ──
+    if os.path.exists(profiles_dir):
+        human_profiles = []
+        for name in os.listdir(profiles_dir):
+            config_path = os.path.join(profiles_dir, name, "config.json")
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                if cfg.get("source") != "agent_log":
+                    human_profiles.append((name, cfg))
+        if human_profiles:
+            print(f"  AOA 追踪的 {len(human_profiles)} 个工作区：")
+            for pname, pcfg in human_profiles:
+                dirs = pcfg.get("scan_dirs", [])
+                print(f"    [{pname}] {pcfg.get('name', pname)} → {', '.join(dirs[:2])}")
+            print("")
+
+    print("  审计命令：")
     for name, _ in unique:
-        # Find profile name
-        profile_name = name.lower().replace(" ", "-")
-        print(f"    python cli.py run {profile_name}")
+        print(f"    python cli.py run {name.lower().replace(' ', '-')}")
     print("")
 
 
