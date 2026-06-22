@@ -808,6 +808,18 @@ def _discover_agents():
         tools = sum(s["tool_calls"] for s in sessions)
         users = sum(s["user_msgs"] for s in sessions)
 
+        # Capability summary
+        from aoa.adapters.agent_trace import aggregate_capabilities, CAPABILITY_LABELS
+        caps = aggregate_capabilities(sessions)
+        cap_summary = ""
+        if caps:
+            top_caps = sorted(caps.items(), key=lambda x: -x[1])[:3]
+            cap_parts = []
+            for cap, count in top_caps:
+                label = CAPABILITY_LABELS.get(cap, cap)
+                cap_parts.append(f"{label}({count})")
+            cap_summary = " | ".join(cap_parts)
+
         # Rough cost estimate
         est_cost = len(main_sessions) * 3.0
 
@@ -826,6 +838,8 @@ def _discover_agents():
         print(f"      路径：{log_dir}")
         print(f"      近 7 天：{len(main_sessions)} 主会话 | {len(sub_sessions)} 子 Agent")
         print(f"      交互：{users} 请求 | {tools} 工具调用")
+        if cap_summary:
+            print(f"      能力分布：{cap_summary}")
         print(f"      估算成本：${est_cost:.0f}")
         if last_active:
             print(f"      最近活跃：{last_active}")

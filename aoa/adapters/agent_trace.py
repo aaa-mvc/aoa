@@ -9,37 +9,34 @@ import time
 from collections import Counter
 
 # ── Capability classification ──
+# Actual tool names from Claude Code transcripts (case-sensitive)
 CAPABILITY_MAP = {
     # Code generation
-    "write": "code_gen",
-    "write_to_file": "code_gen",
-    "edit": "code_gen",
-    "edit_file": "code_gen",
-    "notebook_edit": "code_gen",
+    "Write": "code_gen",
+    "Edit": "code_gen",
+    "NotebookEdit": "code_gen",
     # Project analysis
-    "read": "analysis",
-    "read_file": "analysis",
-    "grep": "analysis",
-    "glob": "analysis",
-    "list_files": "analysis",
+    "Read": "analysis",
+    "Grep": "analysis",
+    "Glob": "analysis",
     # Search & research
-    "web_search": "research",
-    "web_fetch": "research",
-    "search": "research",
-    # Execution / environment
-    "bash": "execution",
-    "execute": "execution",
-    "powershell": "execution",
-    # Delegation
-    "task": "delegation",
-    "agent": "delegation",
-    "workflow": "delegation",
-    # Documentation
-    "notebook_read": "docs",
-    # Filesystem
-    "delete": "fs_ops",
-    "move": "fs_ops",
-    "copy": "fs_ops",
+    "WebSearch": "research",
+    "WebFetch": "research",
+    # Execution
+    "Bash": "execution",
+    "PowerShell": "execution",
+    "Skill": "execution",
+    "Monitor": "execution",
+    # Task delegation
+    "Agent": "delegation",
+    "TaskOutput": "delegation",
+    "TaskStop": "delegation",
+    # Planning
+    "TodoWrite": "planning",
+    "EnterPlanMode": "planning",
+    "ExitPlanMode": "planning",
+    # Interaction
+    "AskUserQuestion": "interaction",
 }
 
 CAPABILITY_LABELS = {
@@ -48,8 +45,8 @@ CAPABILITY_LABELS = {
     "research": "搜索研究",
     "execution": "命令执行",
     "delegation": "任务委派",
-    "docs": "文档处理",
-    "fs_ops": "文件操作",
+    "planning": "任务规划",
+    "interaction": "交互提问",
     "other": "其他",
 }
 
