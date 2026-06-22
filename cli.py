@@ -450,76 +450,16 @@ def run_agent_audit(cfg):
         lines.append("")
 
     # ── Asset Registry ──
-    from aoa.adapters.agent_trace import aggregate_artifacts
-    from aoa.artifact import classify_file, classify_git_op, aggregate_asset_value, CATEGORY_LABELS
-    artifacts = aggregate_artifacts(sessions)
+    from aoa.artifact_extractor import format_asset_summary
 
-    # Classify file artifacts
-    asset_counter = Counter()
-    # Collect all unique file paths from sessions
-    all_new = set()
-    all_modified = set()
-    for s in sessions:
-        for fp_str in s.get("projects", {}).keys():
-            pass  # projects are dir-level, not file-level
-    # Re-scan for file-level artifacts
-    for s in sessions:
-        art = s.get("artifacts", {})
-        # Count new files as assets
-        asset_counter["code"] += art.get("new_files", 0)  # proxy; refined below
-
-    # Better: count by scanning artifacts directly from trace
-    # For now, use file extension classification from aggregated artifacts
-    file_assets = Counter()
-    # Git ops as assets
-    git_assets = Counter()
-    git_assets["commit"] = artifacts.get("git_commits", 0)
-    git_assets["delivery"] = artifacts.get("git_pushes", 0)
-    git_assets["install"] = artifacts.get("installs", 0)
-    git_assets["quality"] = artifacts.get("test_runs", 0)
-
-    if _show("cost_value") and any(artifacts.values()):
-        lines.append("## [Assets] 资产清单")
-        lines.append("")
-        total_weighted = 0.0
-        # Show each asset type with weight
-        asset_rows = []
-        # Git commits
-        if git_assets["commit"]:
-            w = 2.0
-            wv = git_assets["commit"] * w
-            total_weighted += wv
-            asset_rows.append(("Git 提交", git_assets["commit"], w, wv))
-        if git_assets["delivery"]:
-            w = 3.0
-            wv = git_assets["delivery"] * w
-            total_weighted += wv
-            asset_rows.append(("Git 推送", git_assets["delivery"], w, wv))
-        if artifacts["new_files"]:
-            w = 1.0
-            wv = artifacts["new_files"] * w
-            total_weighted += wv
-            asset_rows.append(("新建文件", artifacts["new_files"], w, wv))
-        if artifacts["modified_files"]:
-            w = 0.6
-            wv = artifacts["modified_files"] * w
-            total_weighted += wv
-            asset_rows.append(("修改文件", artifacts["modified_files"], w, wv))
-        if git_assets["quality"]:
-            w = 3.0
-            wv = git_assets["quality"] * w
-            total_weighted += wv
-            asset_rows.append(("测试运行", git_assets["quality"], w, wv))
-        if git_assets["install"]:
-            w = 1.0
-            wv = git_assets["install"] * w
-            total_weighted += wv
-            asset_rows.append(("依赖安装", git_assets["install"], w, wv))
-
-        for label, count, weight, weighted_val in asset_rows:
-            lines.append(f"- {label}：{count} × 权重 {weight} = **{weighted_val:.0f}**")
-        lines.append(f"- **加权资产总分：{total_weighted:.0f}**")
-        lines.append("")
+    if _show("cost_value"):
+        asset_lines, total_weighted = format_asset_summary(sessions)
+        if asset_lines:
+            lines.append("## [Assets] 资产清单")
+            lines.append("")
+            for al in asset_lines:
+                lines.append(al)
+            lines.append("")
 
     # ── Cost/value ──
     if _show("cost_value"):
