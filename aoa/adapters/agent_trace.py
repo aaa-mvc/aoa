@@ -121,10 +121,17 @@ def _parse_session(fpath, fname):
 
     session_id = fname.replace(".jsonl", "")
 
-    # Sub-agent names from directory
+    # Sub-agent: try to read .meta.json for friendly name
     if is_subagent:
-        sub_name = os.path.basename(fname.replace(".jsonl", ""))
-        stats["subagent_names"].append(sub_name)
+        meta_path = fpath.replace(".jsonl", ".meta.json")
+        if os.path.exists(meta_path):
+            try:
+                with open(meta_path, "r", encoding="utf-8") as mf:
+                    meta = json.load(mf)
+                stats["agent_type"] = meta.get("agentType", "")
+                stats["agent_desc"] = meta.get("description", "")
+            except (json.JSONDecodeError, IOError):
+                pass
 
     # Best title
     best_title = stats["titles"][-1] if stats["titles"] else ""
@@ -135,6 +142,8 @@ def _parse_session(fpath, fname):
         "is_subagent": is_subagent,
         "title": best_title,
         "titles": stats["titles"],
+        "agent_type": stats.get("agent_type", ""),
+        "agent_desc": stats.get("agent_desc", ""),
         "timestamp": stats["first_ts"] or "",
         "user_msgs": stats["user_msgs"],
         "assistant_msgs": stats["assistant_msgs"],

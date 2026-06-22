@@ -814,27 +814,50 @@ def _discover_agents():
             for t in all_titles[-8:]:
                 print(f"        - {t[:70]}")
 
-        # Sub-agent names
+        # Sub-agent names with types
         if sub_sessions:
-            sub_names = set()
+            sub_list = []
             for s in sub_sessions:
-                sid = s.get("full_id", s.get("id", ""))
-                sub_names.add(sid[:20])
-            print(f"      子 Agent 实例：{len(sub_names)} 个")
+                atype = s.get("agent_type", "")
+                adesc = s.get("agent_desc", s.get("title", ""))
+                label = f"{atype}: {adesc}" if atype else (adesc or s["id"][:20])
+                sub_list.append(label)
+            unique_subs = list(set(sub_list))
+            print(f"      子 Agent：{len(unique_subs)} 个")
+            for sn in unique_subs[:5]:
+                print(f"        - {sn[:80]}")
+            if len(unique_subs) > 5:
+                print(f"        ... 等 {len(unique_subs)} 个")
 
-        # Simple keyword extraction from titles
+        # Chinese keyword extraction: 2-char bigrams from titles
         if all_titles:
-            keywords = {}
+            kw = {}
+            stop = {"的", "了", "是", "在", "和", "与", "及", "或", "一个", "这个", "那个",
+                    "什么", "怎么", "如何", "可以", "没有", "已经", "还是", "因为", "所以",
+                    "但是", "如果", "虽然", "不过", "只是", "就是"}
             for t in all_titles:
-                for word in t.replace("，", " ").replace("、", " ").split():
-                    word = word.strip()
-                    if len(word) >= 2 and word not in ("的", "了", "是", "在", "和", "与", "及", "或"):
-                        keywords[word] = keywords.get(word, 0) + 1
-            top_kw = sorted(keywords.items(), key=lambda x: -x[1])[:10]
+                # Extract 2-3 char windows
+                clean = t.replace(" ", "").replace("：", "").replace(":", "")
+                for size in [2, 3]:
+                    for i in range(len(clean) - size + 1):
+                        w = clean[i:i+size]
+                        if w not in stop:
+                            kw[w] = kw.get(w, 0) + 1
+            # Also add sub-agent descriptions
+            for s in sub_sessions:
+                desc = s.get("agent_desc", "")
+                if desc:
+                    for size in [2, 3]:
+                        clean = desc.replace(" ", "")
+                        for i in range(len(clean) - size + 1):
+                            w = clean[i:i+size]
+                            if w not in stop:
+                                kw[w] = kw.get(w, 0) + 1
+            top_kw = sorted(kw.items(), key=lambda x: -x[1])[:12]
             if top_kw:
-                print(f"      高频关键词：")
                 kws = " | ".join(f"{w}({c})" for w, c in top_kw if c >= 2)
-                print(f"        {kws}")
+                if kws:
+                    print(f"      高频关键词：{kws}")
         print("")
 
         total_sessions += len(main_sessions)
