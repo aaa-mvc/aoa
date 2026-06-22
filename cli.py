@@ -829,44 +829,50 @@ def _discover_agents():
             if len(unique_subs) > 5:
                 print(f"        ... 等 {len(unique_subs)} 个")
 
-        # Mixed CN/EN keyword extraction
+        # Keyword extraction from titles + descriptions (no chopping)
         if all_titles or sub_sessions:
             kw = {}
-            stop_cn = {"的", "了", "是", "在", "和", "与", "及", "或", "一个", "这个",
-                       "什么", "怎么", "如何", "可以", "没有", "已经", "还是"}
             stop_en = {"the", "a", "an", "and", "or", "of", "in", "to", "for", "is",
                        "with", "on", "at", "by", "from", "this", "that", "it", "be"}
 
-            def extract_words(text):
-                """Extract: English whole words + Chinese 2-3 char bigrams."""
-                # Split English words
+            def extract_phrases(text):
+                """Extract whole meaningful units: English words + full title text."""
+                # English whole words (3+ chars)
                 import re
                 en_words = re.findall(r'[a-zA-Z]{3,}', text)
                 for w in en_words:
                     wl = w.lower()
                     if wl not in stop_en:
                         kw[wl] = kw.get(wl, 0) + 1
-                # Chinese bigrams (only from CJK chars)
-                cn_chars = re.findall(r'[一-鿿]+', text)
-                for segment in cn_chars:
-                    for size in [2, 3]:
-                        for i in range(len(segment) - size + 1):
-                            w = segment[i:i+size]
-                            if w not in stop_cn:
-                                kw[w] = kw.get(w, 0) + 1
+                # Full title as phrase (keep Chinese intact)
+                clean = text.strip()
+                if len(clean) >= 4:
+                    kw[clean] = kw.get(clean, 0) + 1
 
             for t in all_titles:
-                extract_words(t)
+                if t:
+                    extract_phrases(t)
             for s in sub_sessions:
                 desc = s.get("agent_desc", "")
                 if desc:
-                    extract_words(desc)
+                    extract_phrases(desc)
 
-            top_kw = sorted(kw.items(), key=lambda x: -x[1])[:12]
-            if top_kw:
-                kws = " | ".join(f"{w}({c})" for w, c in top_kw if c >= 2)
-                if kws:
-                    print(f"      高频关键词：{kws}")
+            # Show top phrases (whole titles/descriptions, not fragments)
+            # First show English keywords that repeat
+            en_kw = {k: v for k, v in kw.items() if k.isascii() and v >= 2}
+            # Then show full Chinese phrases that repeat
+            cn_kw = {k: v for k, v in kw.items() if not k.isascii() and v >= 2}
+
+            if en_kw or cn_kw:
+                print(f"      高频主题：")
+                # English keywords
+                en_top = sorted(en_kw.items(), key=lambda x: -x[1])[:8]
+                for w, c in en_top:
+                    print(f"        [{c}x] {w}")
+                # Full repeating Chinese titles
+                cn_top = sorted(cn_kw.items(), key=lambda x: -x[1])[:5]
+                for w, c in cn_top:
+                    print(f"        [{c}x] {w[:70]}")
         print("")
 
         total_sessions += len(main_sessions)
