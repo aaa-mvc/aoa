@@ -478,26 +478,35 @@ def run_agent_audit(cfg):
             lines.append(al)
         lines.append("")
 
-    # ── Cost/value ──
+    # ── Value: artifact-weighted evidence model ──
     if _show("cost_value"):
         value_model = cfg.get("value", {})
         params = value_model.get("params", {})
         cost_per = params.get("cost_per_session", 3.0)
-        human_hours = params.get("human_hours_per_session", 2.0)
-        human_rate = params.get("human_rate_per_hour", 50)
-
         total_cost = len(total_main) * cost_per
-        human_equiv = len(total_main) * human_hours * human_rate
 
-        lines.append("## [Value] 价值估算")
+        lines.append("## [Value] 价值明细")
         lines.append("")
-        lines.append(f"- 模型：`{value_model.get('model', 'agent_roi')}`（可在 config.json 替换）")
+        lines.append(f"- 模型：`artifact-weighted`（每项产出 × 类型权重）")
+        lines.append("")
+
+        # Per-category value breakdown from ledger
+        by_cat = ledger.by_category()
+        sorted_cats = sorted(by_cat.items(), key=lambda x: -x[1]["weighted"])
+        for cat, info in sorted_cats:
+            label = {"code": "代码", "document": "文档", "config": "配置",
+                     "script": "脚本", "commit": "提交", "delivery": "交付",
+                     "test": "测试", "install": "安装", "benchmark": "基准",
+                     "dataset": "数据集", "sop": "SOP", "plugin": "插件",
+                     "repo": "仓库", "other": "其他"}.get(cat, cat)
+            lines.append(f"- {label}：{info['count']} × {info['weight']} = **{info['weighted']:.0f}**")
+
+        lines.append("")
+        lines.append(f"- **Artifact Value：{total_weighted:.0f}**")
         lines.append(f"- 估算 API 成本：**${total_cost:.2f}**（基于 {len(total_main)} 次会话）")
-        lines.append(f"- 等效人工价值：**${human_equiv:,.0f}**（基于 {human_hours}h/会话 × ${human_rate}/h）")
         if total_cost > 0:
-            lines.append(f"- 投入产出比：**1:{human_equiv/total_cost:.0f}**")
-        if total_weighted > 0:
-            lines.append(f"- 证据链：上述 [Assets] 资产清单的 {total_weighted:.0f} 加权分支撑此估算")
+            lines.append(f"- 价值/成本比：**{total_weighted / total_cost:.0f}:1**")
+        lines.append(f"- 权重表可在 `aoa/ledger.py` 的 `WEIGHTS` 中按组织需求调整")
         lines.append("")
 
     # ── Verdict ──
