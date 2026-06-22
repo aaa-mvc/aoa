@@ -449,6 +449,27 @@ def run_agent_audit(cfg):
             lines.append(f"- **{day[5:]}** {bar} {n} 会话")
         lines.append("")
 
+    # ── Artifact evidence ──
+    from aoa.adapters.agent_trace import aggregate_artifacts
+    artifacts = aggregate_artifacts(sessions)
+
+    if _show("cost_value") and any(artifacts.values()):
+        lines.append("## [Artifacts] 可观测产出")
+        lines.append("")
+        if artifacts["new_files"]:
+            lines.append(f"- 新建文件：**{artifacts['new_files']}** 个")
+        if artifacts["modified_files"]:
+            lines.append(f"- 修改文件：**{artifacts['modified_files']}** 个")
+        if artifacts["git_commits"]:
+            lines.append(f"- Git 提交：**{artifacts['git_commits']}** 次")
+        if artifacts["git_pushes"]:
+            lines.append(f"- Git 推送：**{artifacts['git_pushes']}** 次")
+        if artifacts["test_runs"]:
+            lines.append(f"- 测试运行：**{artifacts['test_runs']}** 次")
+        if artifacts["installs"]:
+            lines.append(f"- 依赖安装：**{artifacts['installs']}** 次")
+        lines.append("")
+
     # ── Cost/value ──
     if _show("cost_value"):
         value_model = cfg.get("value", {})
@@ -460,13 +481,15 @@ def run_agent_audit(cfg):
         total_cost = len(total_main) * cost_per
         human_equiv = len(total_main) * human_hours * human_rate
 
-        lines.append("## [Value] 成本-价值估算")
+        lines.append("## [Value] 价值估算")
         lines.append("")
-        lines.append(f"- 模型：`{value_model.get('model', 'agent_roi')}`")
-        lines.append(f"- 估算 API 成本：**${total_cost:.2f}**")
-        lines.append(f"- 等效人工价值：**${human_equiv:,.0f}**")
+        lines.append(f"- 模型：`{value_model.get('model', 'agent_roi')}`（可在 config.json 替换）")
+        lines.append(f"- 估算 API 成本：**${total_cost:.2f}**（基于 {len(total_main)} 次会话）")
+        lines.append(f"- 等效人工价值：**${human_equiv:,.0f}**（基于 {human_hours}h/会话 × ${human_rate}/h）")
         if total_cost > 0:
             lines.append(f"- 投入产出比：**1:{human_equiv/total_cost:.0f}**")
+        if any(artifacts.values()):
+            lines.append(f"- 证据链：上述 [Artifacts] 区的 {sum(artifacts.values())} 个可观测产出支撑此估算")
         lines.append("")
 
     # ── Verdict ──

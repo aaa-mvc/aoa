@@ -102,6 +102,13 @@ def _parse_session(fpath, fname):
         "titles": [],
         "capabilities": Counter(),
         "_file_paths": [],
+        # Artifact evidence
+        "new_files": set(),
+        "modified_files": set(),
+        "git_commits": 0,
+        "git_pushes": 0,
+        "test_runs": 0,
+        "installs": 0,
     }
 
     is_subagent = "/subagents/" in fpath.replace("\\", "/")
@@ -144,6 +151,25 @@ def _parse_session(fpath, fname):
                                         if fp and ("D:/" in str(fp) or "Brain" in str(fp)):
                                             stats["_file_paths"].append(str(fp))
                                             break
+                                    # Artifact evidence
+                                    if tool_name == "Write":
+                                        fp = tool_input.get("file_path", "")
+                                        if fp:
+                                            stats["new_files"].add(str(fp))
+                                    elif tool_name == "Edit":
+                                        fp = tool_input.get("file_path", "")
+                                        if fp:
+                                            stats["modified_files"].add(str(fp))
+                                    elif tool_name in ("Bash", "PowerShell"):
+                                        cmd = str(tool_input.get("command", ""))
+                                        if "git commit" in cmd:
+                                            stats["git_commits"] += 1
+                                        elif "git push" in cmd:
+                                            stats["git_pushes"] += 1
+                                        elif "pip install" in cmd or "npm install" in cmd:
+                                            stats["installs"] += 1
+                                        elif "pytest" in cmd or "npm test" in cmd:
+                                            stats["test_runs"] += 1
                                     # Detect sub-agent spawns
                                     if "agent" in tool_name.lower() or "task" in tool_name.lower():
                                         stats["subagents"] += 1
@@ -211,6 +237,14 @@ def _parse_session(fpath, fname):
         "tool_calls": stats["tool_calls"],
         "capabilities": dict(stats["capabilities"]),
         "projects": dict(projects),
+        "artifacts": {
+            "new_files": len(stats["new_files"]),
+            "modified_files": len(stats["modified_files"]),
+            "git_commits": stats["git_commits"],
+            "git_pushes": stats["git_pushes"],
+            "test_runs": stats["test_runs"],
+            "installs": stats["installs"],
+        },
         "subagent_count": stats["subagents"],
         "duration_sec": round(duration_sec, 1),
         "errors": stats["errors"],
@@ -232,6 +266,20 @@ def aggregate_capabilities(sessions):
         for cap, count in s.get("capabilities", {}).items():
             total[cap] += count
     return dict(total)
+
+
+def aggregate_artifacts(sessions):
+    """Aggregate artifact evidence across all sessions."""
+    total = {
+        "new_files": 0, "modified_files": 0,
+        "git_commits": 0, "git_pushes": 0,
+        "test_runs": 0, "installs": 0,
+    }
+    for s in sessions:
+        art = s.get("artifacts", {})
+        for k in total:
+            total[k] += art.get(k, 0)
+    return total
 
 
 def aggregate_projects(sessions):
