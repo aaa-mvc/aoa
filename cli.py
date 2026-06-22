@@ -554,10 +554,11 @@ def run_git(cfg):
 
 def main():
     if len(sys.argv) < 2:
-        print("AOA — Action-Oriented Audit v0.5")
+        print("AOA — Action-Oriented Audit v0.6")
         print("")
         print("Usage:")
         print("  python cli.py interactive          (推荐：双击即用，数字选单）")
+        print("  python cli.py discover agents      (自动发现本机所有 Agent）")
         print("  python cli.py run <profile> [--audience self|manager|hr|boss] [--feedback \"text\"]")
         print("  python cli.py aggregate feedback")
         print("")
@@ -579,6 +580,15 @@ def main():
             _aggregate_feedback()
         else:
             print("Usage: python cli.py aggregate feedback")
+        return
+
+    # ── v0.6: Discover agents ──
+    if command == "discover":
+        subcmd = sys.argv[2] if len(sys.argv) > 2 else ""
+        if subcmd == "agents":
+            _discover_agents()
+        else:
+            print("Usage: python cli.py discover agents")
         return
 
     profile_name = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -708,6 +718,101 @@ def _interactive():
         run_agent_audit(cfg)
     else:
         run_desktop(cfg)
+
+
+def _discover_agents():
+    """Auto-detect all agents on this machine and present a summary."""
+    print("")
+    print("  ========================================")
+    print("    AOA - Agent Discovery")
+    print("  ========================================")
+    print(f"  扫描时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    print("")
+
+    # Known agent log locations
+    known_locations = [
+        ("Claude Code", "C:/Users/Hi/.claude/projects"),
+    ]
+
+    # Also check existing agent profiles
+    profiles_dir = "profiles"
+    if os.path.exists(profiles_dir):
+        for name in os.listdir(profiles_dir):
+            config_path = os.path.join(profiles_dir, name, "config.json")
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                if cfg.get("source") == "agent_log":
+                    known_locations.append((cfg.get("name", name), cfg.get("log_dir", "")))
+
+    # Dedupe by log_dir
+    seen = set()
+    unique = []
+    for name, path in known_locations:
+        if path not in seen:
+            seen.add(path)
+            unique.append((name, path))
+
+    if not unique:
+        print("  (未发现 Agent 日志目录)")
+        print("")
+        print("  配置方法：")
+        print("    在 profiles/<agent-name>/config.json 中设置：")
+        print('    {"source": "agent_log", "log_dir": "/path/to/agent/logs"}')
+        return
+
+    print(f"  发现 {len(unique)} 个 Agent 日志源：")
+    print("")
+
+    total_sessions = 0
+    total_tools = 0
+    total_cost = 0.0
+
+    for i, (name, log_dir) in enumerate(unique, 1):
+        exists = os.path.exists(log_dir)
+        if not exists:
+            print(f"  [{i}] {name}")
+            print(f"      路径：{log_dir}")
+            print(f"      状态：目录不存在")
+            print("")
+            continue
+
+        # Quick scan — last 7 days
+        sessions = scan_agent_logs(log_dir, days=7)
+        main_sessions = [s for s in sessions if not s["is_subagent"]]
+        sub_count = len([s for s in sessions if s["is_subagent"]])
+        tools = sum(s["tool_calls"] for s in sessions)
+        users = sum(s["user_msgs"] for s in sessions)
+
+        # Rough cost estimate
+        est_cost = len(main_sessions) * 3.0
+
+        last_active = ""
+        if main_sessions:
+            last_active = main_sessions[0]["timestamp"][:10]
+
+        print(f"  [{i}] {name}")
+        print(f"      路径：{log_dir}")
+        print(f"      近 7 天：{len(main_sessions)} 主会话 | {sub_count} 子 Agent")
+        print(f"      交互：{users} 请求 | {tools} 工具调用")
+        print(f"      估算成本：${est_cost:.0f}")
+        if last_active:
+            print(f"      最近活跃：{last_active}")
+        print("")
+
+        total_sessions += len(main_sessions)
+        total_tools += tools
+        total_cost += est_cost
+
+    print("  ---")
+    print(f"  总计：{total_sessions} 会话 | {total_tools} 工具调用 | 估算总成本 ${total_cost:.0f}")
+    print("")
+    print("  审计单个 Agent：")
+    for name, _ in unique:
+        # Find profile name
+        profile_name = name.lower().replace(" ", "-")
+        print(f"    python cli.py run {profile_name}")
+    print("")
 
 
 def _list_profiles():
