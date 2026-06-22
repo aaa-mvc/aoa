@@ -391,13 +391,15 @@ def run_agent_audit(cfg):
     if _show("detail") and sessions:
         lines.append("## [Detail] 最近会话")
         lines.append("")
-        for s in sessions[:10]:
+        for s in sessions[:12]:
             tag = "[Sub]" if s["is_subagent"] else "[Main]"
             dur_min = s["duration_sec"] / 60
+            title = s.get("title", "")
+            title_str = f" — {title[:60]}" if title else ""
             lines.append(
                 f"- `{s['timestamp'][:10]}` {tag} {s['id']} | "
                 f"用户{s['user_msgs']}条 工具{s['tool_calls']}次 "
-                f"{dur_min:.0f}分钟"
+                f"{dur_min:.0f}分钟{title_str}"
             )
         lines.append("")
 
@@ -780,7 +782,7 @@ def _discover_agents():
         # Quick scan — last 7 days
         sessions = scan_agent_logs(log_dir, days=7)
         main_sessions = [s for s in sessions if not s["is_subagent"]]
-        sub_count = len([s for s in sessions if s["is_subagent"]])
+        sub_sessions = [s for s in sessions if s["is_subagent"]]
         tools = sum(s["tool_calls"] for s in sessions)
         users = sum(s["user_msgs"] for s in sessions)
 
@@ -791,13 +793,48 @@ def _discover_agents():
         if main_sessions:
             last_active = main_sessions[0]["timestamp"][:10]
 
+        # Collect titles & keywords
+        all_titles = []
+        for s in main_sessions:
+            title = s.get("title", "")
+            if title:
+                all_titles.append(title)
+
         print(f"  [{i}] {name}")
         print(f"      路径：{log_dir}")
-        print(f"      近 7 天：{len(main_sessions)} 主会话 | {sub_count} 子 Agent")
+        print(f"      近 7 天：{len(main_sessions)} 主会话 | {len(sub_sessions)} 子 Agent")
         print(f"      交互：{users} 请求 | {tools} 工具调用")
         print(f"      估算成本：${est_cost:.0f}")
         if last_active:
             print(f"      最近活跃：{last_active}")
+
+        # Show recent session titles
+        if all_titles:
+            print(f"      最近会话主题：")
+            for t in all_titles[-8:]:
+                print(f"        - {t[:70]}")
+
+        # Sub-agent names
+        if sub_sessions:
+            sub_names = set()
+            for s in sub_sessions:
+                sid = s.get("full_id", s.get("id", ""))
+                sub_names.add(sid[:20])
+            print(f"      子 Agent 实例：{len(sub_names)} 个")
+
+        # Simple keyword extraction from titles
+        if all_titles:
+            keywords = {}
+            for t in all_titles:
+                for word in t.replace("，", " ").replace("、", " ").split():
+                    word = word.strip()
+                    if len(word) >= 2 and word not in ("的", "了", "是", "在", "和", "与", "及", "或"):
+                        keywords[word] = keywords.get(word, 0) + 1
+            top_kw = sorted(keywords.items(), key=lambda x: -x[1])[:10]
+            if top_kw:
+                print(f"      高频关键词：")
+                kws = " | ".join(f"{w}({c})" for w, c in top_kw if c >= 2)
+                print(f"        {kws}")
         print("")
 
         total_sessions += len(main_sessions)

@@ -60,6 +60,8 @@ def _parse_session(fpath, fname):
         "errors": 0,
         "first_ts": None,
         "last_ts": None,
+        "titles": [],
+        "subagent_names": [],
     }
 
     # Check if this is a sub-agent session
@@ -81,17 +83,22 @@ def _parse_session(fpath, fname):
 
                 if etype == "user":
                     stats["user_msgs"] += 1
+                elif etype == "ai-title":
+                    title = event.get("aiTitle", "")
+                    if title and title not in stats["titles"]:
+                        stats["titles"].append(title)
                 elif etype == "assistant":
                     stats["assistant_msgs"] += 1
-                    # Count tool calls embedded in assistant blocks
                     content = event.get("message", {}).get("content", [])
                     if isinstance(content, list):
                         for block in content:
                             if isinstance(block, dict):
                                 if block.get("type") == "tool_use":
                                     stats["tool_calls"] += 1
-                                elif block.get("type") == "tool_result":
-                                    pass  # results counted with calls
+                                    # Detect sub-agent spawns
+                                    tool_name = block.get("name", "")
+                                    if "agent" in tool_name.lower() or "task" in tool_name.lower():
+                                        stats["subagents"] += 1
 
                 ts = event.get("timestamp", "")
                 if ts:
@@ -114,14 +121,25 @@ def _parse_session(fpath, fname):
 
     session_id = fname.replace(".jsonl", "")
 
+    # Sub-agent names from directory
+    if is_subagent:
+        sub_name = os.path.basename(fname.replace(".jsonl", ""))
+        stats["subagent_names"].append(sub_name)
+
+    # Best title
+    best_title = stats["titles"][-1] if stats["titles"] else ""
+
     return {
         "id": session_id[:12],
         "full_id": session_id,
         "is_subagent": is_subagent,
+        "title": best_title,
+        "titles": stats["titles"],
         "timestamp": stats["first_ts"] or "",
         "user_msgs": stats["user_msgs"],
         "assistant_msgs": stats["assistant_msgs"],
         "tool_calls": stats["tool_calls"],
+        "subagent_count": stats["subagents"],
         "duration_sec": round(duration_sec, 1),
         "errors": stats["errors"],
     }
