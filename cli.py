@@ -662,6 +662,15 @@ def main():
             print("Usage: python cli.py aggregate feedback")
         return
 
+    # ── v0.8: Agent graph ──
+    if command == "graph":
+        profile_name = sys.argv[2] if len(sys.argv) > 2 else ""
+        if profile_name:
+            _agent_graph(profile_name)
+        else:
+            print("Usage: python cli.py graph <profile>")
+        return
+
     # ── v0.6: Discover agents ──
     if command == "discover":
         subcmd = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -798,6 +807,68 @@ def _interactive():
         run_agent_audit(cfg)
     else:
         run_desktop(cfg)
+
+
+def _agent_graph(profile_name):
+    """One-screen agent value graph. Quick decision tool."""
+    cfg = load_profile_config(profile_name)
+    log_dir = cfg.get("log_dir", ".")
+    days = cfg.get("look_back_days", 7)
+
+    from aoa.adapters.agent_trace import scan_agent_logs, aggregate_capabilities, aggregate_projects, CAPABILITY_LABELS
+    from aoa.ledger import build_ledger_from_sessions
+
+    sessions = scan_agent_logs(log_dir, days)
+    main_sessions = [s for s in sessions if not s["is_subagent"]]
+    sub_count = len([s for s in sessions if s["is_subagent"]])
+
+    total_actions = sum(s["tool_calls"] for s in sessions)
+    all_projects = aggregate_projects(sessions)
+    ledger = build_ledger_from_sessions(sessions)
+    total_value = ledger.score()
+    total_artifacts = ledger.total_count()
+
+    cost_per = cfg.get("value", {}).get("params", {}).get("cost_per_session", 3.0)
+    total_cost = len(main_sessions) * cost_per
+
+    # Build graph
+    print("")
+    print("  ========================================")
+    print(f"   {cfg.get('name', profile_name)}")
+    print("  ========================================")
+    print("")
+    print(f"  Actions ........... {total_actions}")
+    print(f"  Artifacts ......... {total_artifacts}")
+    print("")
+
+    # Top capability categories
+    caps = aggregate_capabilities(sessions)
+    if caps:
+        print("  [Capabilities]")
+        for cap, count in sorted(caps.items(), key=lambda x: -x[1])[:5]:
+            label = CAPABILITY_LABELS.get(cap, cap)
+            bar = "|" * min(count // 40, 20)
+            print(f"    {label:10s} {bar} {count}")
+        print("")
+
+    # Top projects
+    if all_projects:
+        print("  [Projects]")
+        proj_assets = ledger.by_project()
+        for proj, count in list(all_projects.items())[:8]:
+            short = proj.replace("Brain/", "").replace("Hi/", "")
+            pa = proj_assets.get(short, proj_assets.get(proj, {"score": 0.0}))
+            bar = "|" * min(count // 10, 20)
+            print(f"    {short:15s} {bar} {count} actions  score {pa['score']:.0f}")
+        print("")
+
+    print(f"  Value Score ....... {total_value:.0f}")
+    print(f"  Cost .............. ${total_cost:.0f}")
+    if total_cost > 0:
+        print(f"  Value/Cost ........ {total_value / total_cost:.0f}:1")
+    print(f"  Sessions .......... {len(main_sessions)} (+ {sub_count} sub-agents)")
+    print(f"  Period ............ {days} days")
+    print("")
 
 
 def _discover_agents():
