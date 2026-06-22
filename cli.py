@@ -479,8 +479,8 @@ def run_agent_audit(cfg):
         lines.append(f"- 等效人工价值：**${human_equiv:,.0f}**（基于 {human_hours}h/会话 × ${human_rate}/h）")
         if total_cost > 0:
             lines.append(f"- 投入产出比：**1:{human_equiv/total_cost:.0f}**")
-        if any(artifacts.values()):
-            lines.append(f"- 证据链：上述 [Artifacts] 区的 {sum(artifacts.values())} 个可观测产出支撑此估算")
+        if total_weighted > 0:
+            lines.append(f"- 证据链：上述 [Assets] 资产清单的 {total_weighted:.0f} 加权分支撑此估算")
         lines.append("")
 
     # ── Verdict ──
