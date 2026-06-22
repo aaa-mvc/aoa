@@ -388,6 +388,22 @@ def run_agent_audit(cfg):
         lines.append(f"- Agent 响应：**{total_assistant}** 条")
         lines.append("")
 
+    # ── Project distribution ──
+    from aoa.adapters.agent_trace import aggregate_projects
+    all_projects = aggregate_projects(sessions)
+    if _show("exec_summary") and all_projects:
+        lines.append("## [Projects] 项目分布")
+        lines.append("")
+        total_proj_hits = sum(all_projects.values())
+        max_proj = max(all_projects.values()) if all_projects else 1
+        for proj, count in list(all_projects.items())[:10]:
+            pct = count / max(total_proj_hits, 1) * 100
+            bar_len = int(count / max_proj * 15)
+            bar = "|" * max(bar_len, 1)
+            short = proj.replace("Brain/", "").replace("Hi/", "")
+            lines.append(f"- **{short}** {bar} {count} ({pct:.0f}%)")
+        lines.append("")
+
     # ── Capability distribution ──
     if _show("exec_summary") and all_caps:
         lines.append("## [Capability] 能力分布")
